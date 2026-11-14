@@ -1,0 +1,58 @@
+Start testing: Oct 03 22:34 EDT
+----------------------------------------------------------
+1/3 Testing: instance_layers
+1/3 Test: instance_layers
+Command: "/opt/homebrew/Frameworks/Python.framework/Versions/3.14/bin/python3.14" "~/sharc-lab/vtr-3d-prototype/prototype/test_instance_layers.py" "--reader" "~/sharc-lab/vtr-3d-prototype/build/instance-layers/archfpga/read_arch"
+Directory: ~/sharc-lab/vtr-3d-prototype/build/instance-layers
+"instance_layers" start time: Oct 03 22:34 EDT
+Output:
+----------------------------------------------------------
+PASS 01: legacy architecture (attribute absent)
+PASS 02: five-and-five FLE split
+PASS 03: explicit all-zero assignment
+PASS 04: too few entries
+PASS 05: too many entries
+PASS 06: empty list
+PASS 07: negative entry
+PASS 08: trailing junk
+PASS 09: fractional entry
+PASS 10: integer overflow
+PASS 11: root attribute rejected
+PASS 12: automatic LUT expansion preserves original site only
+PASS 13: maximum int accepted (32-bit int target)
+PASS 14: whitespace-only list
+PASS 15: explicit plus sign
+PASS 16: very large integer
+PASS 17: XML whitespace separators
+PASS 18: nested offsets stored separately
+PASS 19: automatic memory expansion preserves original site only
+PASS 20: leading zeros are decimal
+20/20 integration cases passed
+<end of output>
+Test time =   0.56 sec
+----------------------------------------------------------
+Test Passed.
+"instance_layers" end time: Oct 03 22:34 EDT
+"instance_layers" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/3 Testing: test_archfpga
+3/3 Test: test_archfpga
+Command: "~/sharc-lab/vtr-3d-prototype/build/instance-layers/archfpga/test_archfpga" "--colour-mode" "ansi"
+Directory: ~/sharc-lab/vtr-3d-prototype/build/instance-layers/archfpga
+"test_archfpga" start time: Oct 03 22:34 EDT
+Output:
+----------------------------------------------------------
+Randomness seeded to: 2905406707
+===============================================================================
+All tests passed (83 assertions in 3 test cases)
+
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"test_archfpga" end time: Oct 03 22:34 EDT
+"test_archfpga" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Oct 03 22:34 EDT

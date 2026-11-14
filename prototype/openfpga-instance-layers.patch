@@ -1,0 +1,168 @@
+diff --git a/openfpga/src/annotation/annotate_rr_graph.cpp b/openfpga/src/annotation/annotate_rr_graph.cpp
+index c788bc9..bf393fc 100644
+--- a/openfpga/src/annotation/annotate_rr_graph.cpp
++++ b/openfpga/src/annotation/annotate_rr_graph.cpp
+@@ -1890,8 +1890,8 @@ static void annotate_direct_circuit_models(
+   VprDeviceAnnotation& vpr_device_annotation, const bool& verbose_output) {
+   size_t count = 0;
+ 
+-  for (size_t idirect = 0; idirect < vpr_device_ctx.arch->directs.size(); ++idirect) {
+-    std::string direct_name = vpr_device_ctx.arch->directs[idirect].name;
++  for (int idirect = 0; idirect < vpr_device_ctx.arch->num_directs; ++idirect) {
++    std::string direct_name = vpr_device_ctx.arch->Directs[idirect].name;
+     /* The name-to-circuit mapping is stored in either cb_switch-to-circuit or
+      * sb_switch-to-circuit, Try to find one and update the device annotation
+      */
+diff --git a/openfpga/src/annotation/vpr_placement_annotation.cpp b/openfpga/src/annotation/vpr_placement_annotation.cpp
+index 1f0d50b..6abf62c 100644
+--- a/openfpga/src/annotation/vpr_placement_annotation.cpp
++++ b/openfpga/src/annotation/vpr_placement_annotation.cpp
+@@ -26,7 +26,7 @@ std::vector<ClusterBlockId> VprPlacementAnnotation::grid_blocks(
+  ***********************************************************************/
+ void VprPlacementAnnotation::init_mapped_blocks(const DeviceGrid& grids) {
+   /* Size the block array with grid sizes */
+-  blocks_.resize({grids.get_num_layers(), grids.width(), grids.height()});
++  blocks_.resize({static_cast<size_t>(grids.get_num_layers()), grids.width(), grids.height()});
+ 
+   /* Resize the number of blocks allowed per grid by the capacity of the type */
+   for (size_t layer = 0; layer < grids.get_num_layers(); ++layer){
+diff --git a/openfpga/src/fabric/build_grid_modules.cpp b/openfpga/src/fabric/build_grid_modules.cpp
+index 30ad099..f3d2784 100644
+--- a/openfpga/src/fabric/build_grid_modules.cpp
++++ b/openfpga/src/fabric/build_grid_modules.cpp
+@@ -25,6 +25,7 @@
+ #include "openfpga_reserved_words.h"
+ #include "pb_graph_utils.h"
+ #include "pb_type_utils.h"
++#include "pb_type_layers.h"
+ #include "vpr_utils.h"
+ 
+ /* begin namespace openfpga */
+@@ -1059,6 +1060,11 @@ static void rec_build_logical_tile_modules(
+ 
+       /* Add the memory module as a child of primitive module */
+       module_manager.add_child_module(pb_module, child_pb_module);
++      const auto& child_type = physical_mode->pb_type_children[ichild];
++      if (!child_type.instance_layer_offsets.empty()) {
++        module_manager.set_instance_layer_offset(pb_module, child_pb_module, child_instance_id,
++          pb_type_instance_layer_offset(child_type, inst));
++      }
+ 
+       /* Set an instance name to bind to a block in bitstream generation and SDC
+        * generation! */
+diff --git a/openfpga/src/fabric/build_top_module_memory.cpp b/openfpga/src/fabric/build_top_module_memory.cpp
+index 5231ba1..34205fc 100644
+--- a/openfpga/src/fabric/build_top_module_memory.cpp
++++ b/openfpga/src/fabric/build_top_module_memory.cpp
+@@ -166,13 +166,13 @@ static void organize_top_module_tile_memory_modules(
+     }
+     std::string sb_module_name = generate_switch_block_module_name(sb_coord, sb_layer);
+     ModuleId sb_module = module_manager.find_module(sb_module_name);
+-    VTR_ASSERT(true == module_manager.valid_module_id(sb_module));
+ 
+     /* Identify if this sub module includes configuration bits,
+      * we will update the memory module and instance list
+      */
+     /* If the CB does not exist, we can skip addition */
+     if (true == rr_gsb.is_sb_exist(rr_graph)) {
++      VTR_ASSERT(true == module_manager.valid_module_id(sb_module));
+       if (0 < find_module_num_config_bits(module_manager, sb_module,
+                                           circuit_lib, sram_model,
+                                           sram_orgz_type)) {
+diff --git a/openfpga/src/fabric/module_manager.cpp b/openfpga/src/fabric/module_manager.cpp
+index 0a69436..1c6e18d 100644
+--- a/openfpga/src/fabric/module_manager.cpp
++++ b/openfpga/src/fabric/module_manager.cpp
+@@ -968,6 +968,17 @@ void ModuleManager::add_child_module(const ModuleId& parent_module,
+ }
+ 
+ /* Set the instance name of a child module */
++int ModuleManager::instance_layer_offset(const ModuleId& parent, const ModuleId& child, size_t instance) const {
++  auto it = instance_layer_offsets_.find(std::make_tuple(parent, child, instance));
++  return it == instance_layer_offsets_.end() ? -1 : it->second;
++}
++
++void ModuleManager::set_instance_layer_offset(const ModuleId& parent, const ModuleId& child, size_t instance, int offset) {
++  VTR_ASSERT(valid_module_id(parent) && valid_module_id(child));
++  VTR_ASSERT(instance < num_instance(parent, child) && offset >= 0);
++  instance_layer_offsets_[std::make_tuple(parent, child, instance)] = offset;
++}
++
+ void ModuleManager::set_child_instance_name(const ModuleId& parent_module,
+                                             const ModuleId& child_module,
+                                             const size_t& instance_id,
+diff --git a/openfpga/src/fabric/module_manager.h b/openfpga/src/fabric/module_manager.h
+index c46e5d8..3c726cf 100644
+--- a/openfpga/src/fabric/module_manager.h
++++ b/openfpga/src/fabric/module_manager.h
+@@ -398,6 +398,9 @@ class ModuleManager {
+                         const ModuleId& child_module,
+                         const bool& is_io_child = true);
+   /* Set the instance name of a child module */
++  // Physical annotation relative to the enclosing module instance; -1 means omitted.
++  int instance_layer_offset(const ModuleId& parent, const ModuleId& child, size_t instance) const;
++  void set_instance_layer_offset(const ModuleId& parent, const ModuleId& child, size_t instance, int offset);
+   void set_child_instance_name(const ModuleId& parent_module,
+                                const ModuleId& child_module,
+                                const size_t& instance_id,
+@@ -555,6 +558,7 @@ class ModuleManager {
+   void invalidate_net_lookup();
+ 
+  private: /* Internal data */
++  std::map<std::tuple<ModuleId, ModuleId, size_t>, int> instance_layer_offsets_;
+   /* Module-level data */
+   vtr::vector<ModuleId, ModuleId> ids_; /* Unique identifier for each Module */
+   vtr::vector<ModuleId, std::string>
+diff --git a/openfpga/src/fpga_verilog/verilog_module_writer.cpp b/openfpga/src/fpga_verilog/verilog_module_writer.cpp
+index 0fdd012..678f08b 100644
+--- a/openfpga/src/fpga_verilog/verilog_module_writer.cpp
++++ b/openfpga/src/fpga_verilog/verilog_module_writer.cpp
+@@ -473,6 +473,10 @@ static void write_verilog_instance_to_file(std::fstream& fp,
+   VTR_ASSERT(true == valid_file_stream(fp));
+ 
+   /* Print module name */
++  int layer_offset = module_manager.instance_layer_offset(parent_module, child_module, instance_id);
++  if (layer_offset >= 0) {
++    fp << "\t(* vtr_parent_relative_layer_offset = " << layer_offset << " *)\n";
++  }
+   fp << "\t" << module_manager.module_name(child_module) << " ";
+   /* Print instance name:
+    * if we have an instance name, use it;
+diff --git a/openfpga/src/tile_direct/build_tile_direct.cpp b/openfpga/src/tile_direct/build_tile_direct.cpp
+index 01aa2d7..39cd6ce 100644
+--- a/openfpga/src/tile_direct/build_tile_direct.cpp
++++ b/openfpga/src/tile_direct/build_tile_direct.cpp
+@@ -794,28 +794,28 @@ TileDirect build_device_tile_direct(const DeviceContext& device_ctx,
+   TileDirect tile_direct;
+ 
+   /* Walk through each direct definition in the VPR arch */
+-  for (size_t idirect = 0; idirect < device_ctx.arch->directs.size(); ++idirect) {
++  for (int idirect = 0; idirect < device_ctx.arch->num_directs; ++idirect) {
+     ArchDirectId arch_direct_id =
+-      arch_direct.direct(std::string(device_ctx.arch->directs[idirect].name));
++      arch_direct.direct(std::string(device_ctx.arch->Directs[idirect].name));
+     if (ArchDirectId::INVALID() == arch_direct_id) {
+       VTR_LOG_ERROR(
+         "Unable to find an annotation in openfpga architecture XML for "
+         "<direct> '%s'!\n",
+-        device_ctx.arch->directs[idirect].name);
++        device_ctx.arch->Directs[idirect].name);
+       exit(1);
+     }
+     /* Build from original VPR arch definition */
+     if (e_direct_type::INNER_COLUMN_OR_ROW ==
+         arch_direct.type(arch_direct_id)) {
+       build_inner_column_row_tile_direct(tile_direct,
+-                                         device_ctx.arch->directs[idirect],
++                                         device_ctx.arch->Directs[idirect],
+                                          device_ctx, arch_direct_id, verbose);
+       /* Skip those direct connections which belong part of a connection block
+        */
+     }
+     /* Build from OpenFPGA arch definition */
+     build_inter_column_row_tile_direct(
+-      tile_direct, device_ctx.arch->directs[idirect], device_ctx, arch_direct,
++      tile_direct, device_ctx.arch->Directs[idirect], device_ctx, arch_direct,
+       arch_direct_id, verbose);
+   }
+ 
