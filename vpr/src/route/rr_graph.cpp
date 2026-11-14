@@ -1026,10 +1026,27 @@ std::set<int> get_layers_of_physical_types(const t_physical_tile_type_ptr type) 
     std::set<int> phy_type_layers;
     for (int layer = 0; layer < device_ctx.grid.get_num_layers(); layer++) {
         if (device_ctx.grid.num_instances(type, layer) != 0) {
-            phy_type_layers.insert(layer);
+            // A spanning tile also occupies the reserved cells above its anchor.
+            for (int dz = 0; dz < type->layer_span && layer + dz < device_ctx.grid.get_num_layers(); ++dz) {
+                phy_type_layers.insert(layer + dz);
+            }
         }
     }
-    return phy_type_layers;
+    // A pin that reaches another layer's tracks (pin layer_offset) needs a connection-block
+    // pattern for that layer even where this type has no instances there: the pin-to-track
+    // map is indexed by the track's layer and filled only for the layers listed here, so
+    // without this an input pin of a type placed on one layer never reads the other layer's
+    // tracks (output pins are unaffected: build_unidir_rr_opins does not use this list).
+    std::set<int> reached = phy_type_layers;
+    for (int layer = 0; layer < device_ctx.grid.get_num_layers(); layer++) {
+        if (device_ctx.grid.num_instances(type, layer) == 0) continue;
+        for (int pin = 0; pin < type->num_pins; ++pin) {
+            for (int to : get_layers_pin_is_connected_to(type, layer, pin)) {
+                reached.insert(to);
+            }
+        }
+    }
+    return reached;
 }
 
 std::set<int> get_layers_pin_is_connected_to(const t_physical_tile_type_ptr type, int from_layer, int pin_index) {
@@ -2565,7 +2582,8 @@ static void add_pins_rr_graph(RRGraphBuilder& rr_graph_builder,
             int y_offset = y_offset_vec[pin_coord];
             e_side pin_side = pin_sides_vec[pin_coord];
             auto node_type = (pin_type == DRIVER) ? OPIN : IPIN;
-            RRNodeId node_id = node_lookup.find_node(layer,
+            const int pin_layer = layer + get_pin_physical_layer(physical_type, pin_num);
+            RRNodeId node_id = node_lookup.find_node(pin_layer,
                                                      i + x_offset,
                                                      j + y_offset,
                                                      node_type,
@@ -2595,7 +2613,7 @@ static void add_pins_rr_graph(RRGraphBuilder& rr_graph_builder,
                                                       j + y_offset,
                                                       i + x_offset,
                                                       j + y_offset);
-                rr_graph_builder.set_node_layer(node_id, layer);
+                rr_graph_builder.set_node_layer(node_id, pin_layer);
                 rr_graph_builder.add_node_side(node_id, pin_side);
             }
         }
@@ -2785,12 +2803,13 @@ static void build_bidir_rr_opins(RRGraphBuilder& rr_graph_builder,
             total_pin_Fc += Fc[pin_index][iseg];
         }
 
-        RRNodeId node_index = rr_graph_builder.node_lookup().find_node(layer, i, j, OPIN, pin_index, side);
+        const int pin_layer = layer + get_pin_physical_layer(type, pin_index);
+        RRNodeId node_index = rr_graph_builder.node_lookup().find_node(pin_layer, i, j, OPIN, pin_index, side);
         VTR_ASSERT(node_index);
 
         for (auto connected_layer : get_layers_pin_is_connected_to(type, layer, pin_index)) {
             if (total_pin_Fc > 0) {
-                get_bidir_opin_connections(rr_graph_builder, layer, connected_layer, i, j, pin_index,
+                get_bidir_opin_connections(rr_graph_builder, pin_layer, connected_layer, i, j, pin_index,
                                            node_index, rr_edges_to_create, opin_to_track_map,
                                            chan_details_x,
                                            chan_details_y);
@@ -4277,7 +4296,8 @@ static void build_unidir_rr_opins(RRGraphBuilder& rr_graph_builder,
             continue;
         }
 
-        RRNodeId opin_node_index = rr_graph_builder.node_lookup().find_node(layer, i, j, OPIN, pin_index, side);
+        const int pin_layer = layer + get_pin_physical_layer(type, pin_index);
+        RRNodeId opin_node_index = rr_graph_builder.node_lookup().find_node(pin_layer, i, j, OPIN, pin_index, side);
         if (!opin_node_index) continue; //No valid from node
 
         for (int iseg = 0; iseg < num_seg_types; iseg++) {
@@ -4337,7 +4357,7 @@ static void build_unidir_rr_opins(RRGraphBuilder& rr_graph_builder,
 
             for (auto connected_layer : get_layers_pin_is_connected_to(type, layer, pin_index)) {
                 /* Check the pin physical layer and connect it to the same layer if necessary */
-                rr_edge_count += get_unidir_opin_connections(rr_graph_builder, layer, connected_layer, chan, seg,
+                rr_edge_count += get_unidir_opin_connections(rr_graph_builder, pin_layer, connected_layer, chan, seg,
                                                              seg_type_Fc, seg_index, chan_type, seg_details,
                                                              opin_node_index,
                                                              rr_edges_to_create,
@@ -4499,15 +4519,19 @@ static int get_opin_direct_connections(RRGraphBuilder& rr_graph_builder,
 
             if (directs[i].from_side != NUM_2D_SIDES && directs[i].from_side != side) continue;
 
-            //Offset must be in range
+            //Offset must be in range. layer is the source tile's base layer; a layer_offset
+            //direct reaches the tile whose base layer is that many layers away.
+            const int target_layer = layer + directs[i].layer_offset;
+            if (target_layer < 0 || target_layer >= device_ctx.grid.get_num_layers()) continue;
             if (x + directs[i].x_offset < int(device_ctx.grid.width() - 1)
                 && x + directs[i].x_offset > 0
                 && y + directs[i].y_offset < int(device_ctx.grid.height() - 1)
                 && y + directs[i].y_offset > 0) {
+                const t_physical_tile_loc target_loc{x + directs[i].x_offset, y + directs[i].y_offset, target_layer};
+                //A cell reserved for a tile anchored on a lower layer is not a target
+                if (device_ctx.grid.get_layer_anchor_offset(target_loc) != 0) continue;
                 //Only add connections if the target clb type matches the type in the direct specification
-                t_physical_tile_type_ptr target_type = device_ctx.grid.get_physical_type({x + directs[i].x_offset,
-                                                                                          y + directs[i].y_offset,
-                                                                                          layer});
+                t_physical_tile_type_ptr target_type = device_ctx.grid.get_physical_type(target_loc);
 
                 if (clb_to_clb_directs[i].to_clb_type == target_type
                     && z + directs[i].sub_tile_offset < int(target_type->capacity)
@@ -4564,16 +4588,18 @@ static int get_opin_direct_connections(RRGraphBuilder& rr_graph_builder,
 
                         /* Add new ipin edge to list of edges */
                         std::vector<RRNodeId> inodes;
+                        //The ipin's node sits on the layer of the target tile where the pin is
+                        const int ipin_layer = target_layer + get_pin_physical_layer(target_type, ipin);
 
                         if (directs[i].to_side != NUM_2D_SIDES) {
                             //Explicit side specified, only create if pin exists on that side
-                            RRNodeId inode = rr_graph_builder.node_lookup().find_node(layer, x + directs[i].x_offset, y + directs[i].y_offset, IPIN, ipin, directs[i].to_side);
+                            RRNodeId inode = rr_graph_builder.node_lookup().find_node(ipin_layer, x + directs[i].x_offset, y + directs[i].y_offset, IPIN, ipin, directs[i].to_side);
                             if (inode) {
                                 inodes.push_back(inode);
                             }
                         } else {
                             //No side specified, get all candidates
-                            inodes = rr_graph_builder.node_lookup().find_nodes_at_all_sides(layer, x + directs[i].x_offset, y + directs[i].y_offset, IPIN, ipin);
+                            inodes = rr_graph_builder.node_lookup().find_nodes_at_all_sides(ipin_layer, x + directs[i].x_offset, y + directs[i].y_offset, IPIN, ipin);
                         }
 
                         if (inodes.size() > 0) {

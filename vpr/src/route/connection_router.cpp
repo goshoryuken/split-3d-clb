@@ -213,7 +213,9 @@ void ConnectionRouter<Heap>::timing_driven_route_connection_from_heap(RRNodeId s
     }
 
     target_bb.layer_min = rr_graph_->node_layer(RRNodeId(sink_node));
-    target_bb.layer_max = rr_graph_->node_layer(RRNodeId(sink_node));
+    // The target's IPINs can sit on any layer its tile covers.
+    target_bb.layer_max = target_bb.layer_min - 1
+                          + grid_.get_physical_type({rr_graph_->node_xlow(sink_node), rr_graph_->node_ylow(sink_node), target_bb.layer_min})->layer_span;
 
     // Start measuring path search time
     std::chrono::steady_clock::time_point begin_time = std::chrono::steady_clock::now();

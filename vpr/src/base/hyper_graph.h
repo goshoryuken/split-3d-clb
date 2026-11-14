@@ -74,7 +74,7 @@ class VprHypergraph {
      * Returns a vector containing the size of each hyperedge (number of vertices in each hyperedge)
      * The size of the vector is num_hyperedges_
      */
-    std::vector<int> get_edge_weights(float alpha, vtr::vector<AtomBlockId, float>& atom_criticality = nullptr, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr) const;
+    std::vector<int> get_edge_weights(float alpha, vtr::vector<AtomBlockId, float>& atom_criticality, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup) const;
 
     /**
      * @brief Get the vertex weights
@@ -82,7 +82,7 @@ class VprHypergraph {
      * Returns a vector containing the number of hyperedges each vertex is part of
      * The size of the vector is num_vertices_
      */
-    std::vector<int> get_vertices_weights(float beta, vtr::vector<AtomBlockId, float>& atom_criticality = nullptr, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr, bool timing = false) const;
+    std::vector<int> get_vertices_weights(float beta, vtr::vector<AtomBlockId, float>& atom_criticality, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup, bool timing = false) const;
     
     /**
      * @brief Get the hyperedges array

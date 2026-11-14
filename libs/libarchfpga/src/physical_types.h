@@ -666,6 +666,13 @@ struct t_physical_tile_type {
     int width = 0;
     int height = 0;
 
+    // Physical footprint extends upward from the anchor layer, inclusive.
+    // Initial multi-layer support is restricted to 1x1, capacity-one tiles.
+    // pin_layer on a <loc> places pins on an upper layer of the tile; they sit
+    // on the anchor by default. layer_offset separately lets a pin reach the
+    // routing one layer away from wherever it sits.
+    int layer_span = 1;
+
     vtr::NdMatrix<std::vector<bool>, 3> pinloc; /* [0..width-1][0..height-1][0..3][0..num_pins-1] */
 
     std::vector<t_class> class_inf; /* [0..num_class-1] */
@@ -677,6 +684,7 @@ struct t_physical_tile_type {
     std::unordered_map<int, t_class> primitive_class_inf; // [primitive_class_num] -> primitive_class_inf
 
     std::vector<int> pin_layer_offset;                // [0..num_pins-1]
+    std::vector<int> pin_physical_layer;              // [0..num_pins-1] Layer of the pin, relative to the anchor.
     std::vector<int> pin_width_offset;                // [0..num_pins-1]
     std::vector<int> pin_height_offset;               // [0..num_pins-1]
     std::vector<int> pin_class;                       // [0..num_pins-1]
@@ -1011,6 +1019,11 @@ struct t_logical_block_type {
 struct t_pb_type {
     char* name = nullptr;
     int num_pb = 0;
+    // Proposed internal-site layer offsets relative to the immediate parent.
+    // Empty means omitted (zero offset for every instance); otherwise num_pb
+    // nonnegative entries indexed by the instance's placement_index.
+    // Root placement and hierarchy depth are separate from these offsets.
+    std::vector<int> instance_layer_offsets;
     char* blif_model = nullptr;
     t_model* model = nullptr;
     enum e_pb_type_class class_type = UNKNOWN_CLASS;
@@ -1104,6 +1117,9 @@ struct t_interconnect {
     t_pin_to_pin_annotation* annotations = nullptr; /* [0..num_annotations-1] */
     int num_annotations = 0;
     bool infer_annotations = false;
+    // Optional additional delay in seconds per crossed internal layer.
+    // This is an architecture parameter, not a measured physical model.
+    double layer_crossing_delay = 0.;
 
     int line_num = 0; /* Interconnect is processed later, need to know what line number it messed up on to give proper error message */
 
@@ -1867,6 +1883,11 @@ struct t_direct_inf {
     int y_offset;
     /// The subtile offset from the source to the sink of this connection
     int sub_tile_offset;
+    /// The offset from the source tile's base layer to the sink tile's base layer (3D)
+    int layer_offset = 0;
+    /// Whether nets on this connection form placement macros (carry chains). A direct that is
+    /// only a routing shortcut between general pins sets this false.
+    bool placement_macro = true;
     /// The index into the switch list for the switch used by this direct
     int switch_type;
     /// The associated from_pin’s block side

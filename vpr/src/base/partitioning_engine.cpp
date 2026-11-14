@@ -2,6 +2,7 @@
 #include "vtr_log.h"
 #include "vtr_assert.h"
 #include <fstream>
+#include <sstream>
 #include <algorithm>
 #include <map>
 #include <chrono>

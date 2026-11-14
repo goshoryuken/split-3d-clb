@@ -1127,6 +1127,8 @@ struct t_placer_opts {
     e_timing_update_type timing_update_type;
 
     PlaceDelayModelType delay_model_type;
+    ///@brief True unless the user chose the delay model; a default simple model then becomes delta on multi-layer devices
+    bool delay_model_inferred = false;
     e_reducer delay_model_reducer;
 
     float delay_offset;

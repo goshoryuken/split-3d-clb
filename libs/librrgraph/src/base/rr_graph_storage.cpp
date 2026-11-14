@@ -454,7 +454,7 @@ size_t t_rr_graph_storage::count_rr_switches(
         for (auto edge_switch : vtr::Range<decltype(edge_switch_)::const_iterator>(
                  edge_switch_.begin() + first_edge_offset,
                  edge_switch_.begin() + last_edge_offset)) {
-            if (edge_switch < arch_switch_counts.size()) {
+            if ((size_t)edge_switch < arch_switch_counts.size()) {
                 arch_switch_counts[edge_switch] += 1;
             } else {
                 // Handle the error case, e.g., log an error or throw an exception
@@ -515,7 +515,7 @@ void t_rr_graph_storage::remap_rr_node_switch_indices(const t_arch_switch_fanin&
         }
 
         int switch_index = edge_switch_[edge];
-        if (switch_index >= switch_fanin.size()) {
+        if ((size_t)switch_index >= switch_fanin.size()) {
             VTR_LOG_ERROR("switch_index out of bounds: %d\n", switch_index);
             continue;
         }

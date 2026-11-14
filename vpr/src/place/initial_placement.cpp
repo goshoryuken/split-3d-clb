@@ -623,6 +623,7 @@ static std::vector<t_grid_empty_locs_block_type> init_blk_types_empty_locations(
     for (int layer_num = 0; layer_num < num_layers; layer_num++) {
         int min_cx = compressed_block_grid.grid_loc_to_compressed_loc_approx({0, OPEN, layer_num}).x;
         int max_cx = compressed_block_grid.grid_loc_to_compressed_loc_approx({(int)grid.width() - 1, OPEN, layer_num}).x;
+        if (min_cx == OPEN) continue;
 
         //traverse all column and store their empty locations in block_type_empty_locs
         for (int x_loc = min_cx; x_loc <= max_cx; x_loc++) {
@@ -690,7 +691,13 @@ bool try_place_macro_randomly(const t_pl_macro& pl_macro,
     const vtr::Rect<int>& reg_rect = reg.get_rect();
     const auto [layer_low, layer_high] = reg.get_layer_range();
 
-    int selected_layer = (layer_low == layer_high) ? layer_low : layer_low + rng.irand(layer_high - layer_low);
+    std::vector<int> candidate_layers;
+    for (int layer : compressed_block_grid.compressed_to_grid_layer) {
+        if (layer >= layer_low && layer <= layer_high) candidate_layers.push_back(layer);
+    }
+    if (candidate_layers.empty()) return false;
+    int selected_layer = candidate_layers.size() == 1 ? candidate_layers.front()
+                         : candidate_layers[rng.irand(candidate_layers.size() - 1)];
 
     auto min_compressed_loc = compressed_block_grid.grid_loc_to_compressed_loc_approx({reg_rect.xmin(), reg_rect.ymin(), selected_layer});
 

@@ -312,8 +312,14 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
         to_yhigh = tile_bb.ymax();
     }
 
-    // Layer numbers are should not be more than one layer apart for connected nodes
-    VTR_ASSERT(abs(from_layer - to_layer) <= 1);
+    // Connected nodes are at most one layer apart, except a tile's pins and its class nodes: a tile
+    // spanning several layers keeps SOURCE/SINK on its base layer and its pins on any of its layers.
+    int max_layer_step = 1;
+    if ((from_type == SOURCE && to_type == OPIN) || (from_type == IPIN && to_type == SINK)) {
+        t_physical_tile_type_ptr tile = device_ctx.grid.get_physical_type({from_xlow, from_ylow, std::min(from_layer, to_layer)});
+        max_layer_step = std::max(1, tile->layer_span - 1);
+    }
+    VTR_ASSERT(abs(from_layer - to_layer) <= max_layer_step);
     switch (from_type) {
         case SOURCE:
             VTR_ASSERT(to_type == OPIN);
@@ -323,8 +329,8 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
                 && from_ylow <= to_ylow
                 && from_xhigh >= to_xhigh
                 && from_yhigh >= to_yhigh) {
-                from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
-                to_grid_type = device_ctx.grid.get_physical_type({to_xlow, to_ylow, to_layer});
+                from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
+                to_grid_type = device_ctx.grid.get_footprint_type({to_xlow, to_ylow, to_layer});
                 VTR_ASSERT(from_grid_type == to_grid_type);
 
                 iclass = get_class_num_from_pin_physical_num(to_grid_type, to_ptc);
@@ -338,7 +344,7 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
             break;
 
         case OPIN:
-            from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
+            from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
             if (to_type == CHANX || to_type == CHANY) {
                 num_adj += 1; //adjacent
             } else if (is_flat) {
@@ -352,7 +358,7 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
             break;
 
         case IPIN:
-            from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
+            from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
             if (is_flat) {
                 VTR_ASSERT(to_type == OPIN || to_type == IPIN || to_type == SINK);
             } else {
@@ -365,16 +371,16 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
                     && from_ylow >= to_ylow
                     && from_xhigh <= to_xhigh
                     && from_yhigh <= to_yhigh) {
-                    from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
-                    to_grid_type = device_ctx.grid.get_physical_type({to_xlow, to_ylow, to_layer});
+                    from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
+                    to_grid_type = device_ctx.grid.get_footprint_type({to_xlow, to_ylow, to_layer});
                     VTR_ASSERT(from_grid_type == to_grid_type);
                     iclass = get_class_num_from_pin_physical_num(from_grid_type, from_ptc);
                     if (iclass == to_ptc)
                         num_adj++;
                 }
             } else {
-                from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
-                to_grid_type = device_ctx.grid.get_physical_type({to_xlow, to_ylow, to_layer});
+                from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
+                to_grid_type = device_ctx.grid.get_footprint_type({to_xlow, to_ylow, to_layer});
                 VTR_ASSERT(from_grid_type == to_grid_type);
                 int from_root_x = from_xlow - device_ctx.grid.get_width_offset({from_xlow, from_ylow, from_layer});
                 int from_root_y = from_ylow - device_ctx.grid.get_height_offset({from_xlow, from_ylow, from_layer});

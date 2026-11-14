@@ -1,6 +1,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "pb_type_layers.h"
 #include <set>
 #include <map>
 #include <vector>
@@ -208,14 +209,18 @@ class LutInst : public Instance {
             std::string inst_name,                                      ///<The name of this instance
             std::map<std::string, std::vector<std::string>> port_conns, ///<The port connections of this instance. Key: port name, Value: connected nets
             std::vector<Arc> timing_arc_values,                         ///<The timing arcs of this instance
-            struct t_analysis_opts opts)
+            struct t_analysis_opts opts,
+            int relative_layer = -1,
+            int absolute_layer = -1)
         : type_("LUT_K")
         , lut_size_(lut_size)
         , lut_mask_(lut_mask)
         , inst_name_(inst_name)
         , port_conns_(port_conns)
         , timing_arcs_(timing_arc_values)
-        , opts_(opts) {
+        , opts_(opts)
+        , relative_layer_(relative_layer)
+        , absolute_layer_(absolute_layer) {
     }
 
     //Accessors
@@ -226,6 +231,10 @@ class LutInst : public Instance {
   public: //Instance interface method implementations
     void print_verilog(std::ostream& os, size_t& unconn_count, int depth) override {
         //Instantiate the lut
+        if (relative_layer_ >= 0) {
+            os << indent(depth) << "(* vtr_relative_layer = " << relative_layer_
+               << ", vtr_absolute_layer = " << absolute_layer_ << " *)\n";
+        }
         os << indent(depth) << type_ << " #(\n";
 
         os << indent(depth + 1) << ".K(" << lut_size_ << "),\n";
@@ -386,6 +395,8 @@ class LutInst : public Instance {
     std::map<std::string, std::vector<std::string>> port_conns_;
     std::vector<Arc> timing_arcs_;
     struct t_analysis_opts opts_;
+    int relative_layer_;
+    int absolute_layer_;
 };
 
 class LatchInst : public Instance {
@@ -1262,7 +1273,13 @@ class NetlistWriterVisitor : public NetlistVisitor {
             port_conns["out"].push_back(net);
         }
 
-        auto inst = std::make_shared<LutInst>(lut_size, lut_mask, inst_name, port_conns, timing_arcs, opts_);
+        const auto& atom_ctx = g_vpr_ctx.atom();
+        auto clb = atom_ctx.lookup.atom_clb(atom_ctx.lookup.pb_atom(atom));
+        const auto& loc = g_vpr_ctx.placement().block_locs()[clb].loc;
+        auto tile = g_vpr_ctx.device().grid.get_physical_type({loc.x, loc.y, loc.layer});
+        int relative_layer = tile->layer_span > 1 ? pb_graph_node_layer_offset(*atom->pb_graph_node) : -1;
+        auto inst = std::make_shared<LutInst>(lut_size, lut_mask, inst_name, port_conns, timing_arcs, opts_,
+                                             relative_layer, relative_layer < 0 ? -1 : loc.layer + relative_layer);
 
         return inst;
     }

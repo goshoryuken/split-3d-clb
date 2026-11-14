@@ -400,6 +400,13 @@ static void PrintPb_types_rec(FILE* Echo, const t_pb_type* pb_type, int level) {
     tabs[level] = '\0';
 
     fprintf(Echo, "%spb_type name: %s\n", tabs, pb_type->name);
+    if (!pb_type->instance_layer_offsets.empty()) {
+        fprintf(Echo, "%s\tinstance_layer_offsets:", tabs);
+        for (int offset : pb_type->instance_layer_offsets) {
+            fprintf(Echo, " %d", offset);
+        }
+        fprintf(Echo, "\n");
+    }
     fprintf(Echo, "%s\tblif_model: %s\n", tabs, pb_type->blif_model);
     fprintf(Echo, "%s\tclass_type: %d\n", tabs, pb_type->class_type);
     fprintf(Echo, "%s\tnum_modes: %d\n", tabs, pb_type->num_modes);

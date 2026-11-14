@@ -37,6 +37,10 @@
  */
 
 #include <cstring>
+#include <charconv>
+#include <cmath>
+#include <exception>
+#include <system_error>
 #include <map>
 #include <set>
 #include <string>
@@ -64,6 +68,7 @@
 #include "parse_switchblocks.h"
 
 #include "physical_types_util.h"
+#include "pb_type_layers.h"
 #include "vtr_expr_eval.h"
 
 #include "read_xml_arch_file_noc_tag.h"
@@ -99,6 +104,9 @@ struct t_pin_locs {
 
     /* [0..num_sub_tiles-1][0..width-1][0..height-1][0..num_of_layer-1][0..3][0..num_tokens-1] */
     vtr::NdMatrix<std::vector<std::string>, 5> assignments;
+
+    /* Tile-relative pin_layer of each assignment token, by sub-tile. */
+    std::map<std::pair<int, std::string>, int> pin_layers;
 
     bool is_distribution_set() const {
         return distribution_set;
@@ -479,6 +487,18 @@ void XmlReadArch(const char* ArchFile,
         /* Link Physical Tiles with Logical Blocks */
         link_physical_logical_types(PhysicalTileTypes, LogicalBlockTypes);
 
+        // Preserve metadata-only parser fixtures when no physical span is given.
+        // VPR validates every tile before using it, including implicit span=1.
+        for (auto tile_node : get_single_child(architecture, "tiles", loc_data).children("tile")) {
+            if (tile_node.attribute("layer_span")) {
+                for (const auto& tile : PhysicalTileTypes) {
+                    if (tile.name == tile_node.attribute("name").value()) {
+                        validate_tile_layer_span(tile);
+                    }
+                }
+            }
+        }
+
         /* Process directs */
         Next = get_single_child(architecture, "directlist", loc_data, ReqOpt::OPTIONAL);
         if (Next) {
@@ -580,6 +600,7 @@ static void LoadPinLoc(pugi::xml_node Locations,
     type->pin_height_offset.resize(type->num_pins, 0);
     //layer_offset is not used if the distribution is not custom
     type->pin_layer_offset.resize(type->num_pins, 0);
+    type->pin_physical_layer.resize(type->num_pins, 0);
 
     std::vector<int> physical_pin_counts(type->num_pins, 0);
     if (pin_locs->distribution == e_pin_location_distr::SPREAD) {
@@ -729,6 +750,7 @@ static void LoadPinLoc(pugi::xml_node Locations,
                                         type->pin_width_offset[physical_pin_index] += width;
                                         type->pin_height_offset[physical_pin_index] += height;
                                         type->pin_layer_offset[physical_pin_index] = layer;
+                                        type->pin_physical_layer[physical_pin_index] = pin_locs->pin_layers[{sub_tile_index, token}];
                                         physical_pin_counts[physical_pin_index] += 1;
                                     }
                                 }
@@ -1315,6 +1337,46 @@ static void ProcessPb_TypePowerEstMethod(pugi::xml_node Parent, t_pb_type* pb_ty
     }
 }
 
+// Parsing records parent-relative assignments. Graph resolution and physical
+// validation are performed separately by pb_type_layers and the VPR consumers.
+static void ProcessInstanceLayerOffsets(pugi::xml_node node,
+                                        t_pb_type* pb_type,
+                                        bool is_root_pb_type,
+                                        const pugiutil::loc_data& loc_data) {
+    auto attr = get_attribute(node, "instance_layer_offsets", loc_data, ReqOpt::OPTIONAL);
+    if (!attr) {
+        return;
+    }
+    if (is_root_pb_type) {
+        archfpga_throw(loc_data.filename_c_str(), loc_data.line(node),
+                       "instance_layer_offsets is allowed only on internal pb_type elements; "
+                       "root pb_type '%s' gets its layer from placement/layout.", pb_type->name);
+    }
+
+    std::istringstream entries(attr.value());
+    std::string token;
+    while (entries >> token) {
+        int offset = 0;
+        auto result = std::from_chars(token.data(), token.data() + token.size(), offset);
+        // Require decimal digits only: no signs, fractions, or trailing text.
+        bool digits_only = std::all_of(token.begin(), token.end(), [](char c) {
+            return c >= '0' && c <= '9';
+        });
+        if (!digits_only || result.ec != std::errc{} || result.ptr != token.data() + token.size()) {
+            archfpga_throw(loc_data.filename_c_str(), loc_data.line(node),
+                           "Invalid instance_layer_offsets entry '%s' for pb_type '%s': "
+                           "expected a nonnegative decimal integer representable as int.",
+                           token.c_str(), pb_type->name);
+        }
+        pb_type->instance_layer_offsets.push_back(offset);
+    }
+    if (pb_type->instance_layer_offsets.size() != static_cast<size_t>(pb_type->num_pb)) {
+        archfpga_throw(loc_data.filename_c_str(), loc_data.line(node),
+                       "instance_layer_offsets for pb_type '%s' requires exactly num_pb=%d entries; got %zu.",
+                       pb_type->name, pb_type->num_pb, pb_type->instance_layer_offsets.size());
+    }
+}
+
 /* Takes in a pb_type, allocates and loads data for it and recurses downwards */
 static void ProcessPb_Type(pugi::xml_node Parent,
                            t_pb_type* pb_type,
@@ -1398,6 +1460,8 @@ static void ProcessPb_Type(pugi::xml_node Parent,
     }
 
     VTR_ASSERT(pb_type->num_pb > 0);
+
+    ProcessInstanceLayerOffsets(Parent, pb_type, is_root_pb_type, loc_data);
 
     const int num_in_ports = count_children(Parent, "input", loc_data, ReqOpt::OPTIONAL);
     const int num_out_ports = count_children(Parent, "output", loc_data, ReqOpt::OPTIONAL);
@@ -1838,6 +1902,21 @@ static void ProcessInterconnect(vtr::string_internment& strings,
             }
 
             mode->interconnect[interconnect_idx].line_num = loc_data.line(Cur);
+            if (auto delay = get_attribute(Cur, "layer_crossing_delay", loc_data, ReqOpt::OPTIONAL)) {
+                std::string token = delay.value();
+                size_t consumed = 0;
+                double value = -1.;
+                try {
+                    value = std::stod(token, &consumed);
+                } catch (const std::exception&) {
+                    // Report malformed and out-of-range values as architecture errors below.
+                }
+                if (consumed != token.size() || !std::isfinite(value) || value < 0.) {
+                    archfpga_throw(loc_data.filename_c_str(), loc_data.line(Cur),
+                                   "layer_crossing_delay must be finite nonnegative seconds");
+                }
+                mode->interconnect[interconnect_idx].layer_crossing_delay = value;
+            }
 
             mode->interconnect[interconnect_idx].parent_mode_index = mode->index;
             mode->interconnect[interconnect_idx].parent_mode = mode;
@@ -3143,7 +3222,7 @@ static void MarkIoTypes(std::vector<t_physical_tile_type>& PhysicalTileTypes) {
 static void ProcessTileProps(pugi::xml_node Node,
                              t_physical_tile_type* PhysicalTileType,
                              const pugiutil::loc_data& loc_data) {
-    expect_only_attributes(Node, {"name", "width", "height", "area"}, loc_data);
+    expect_only_attributes(Node, {"name", "width", "height", "area", "layer_span"}, loc_data);
 
     /* Load type name */
     auto Prop = get_attribute(Node, "name", loc_data).value();
@@ -3152,6 +3231,16 @@ static void ProcessTileProps(pugi::xml_node Node,
     /* Load properties */
     PhysicalTileType->width = get_attribute(Node, "width", loc_data, ReqOpt::OPTIONAL).as_uint(1);
     PhysicalTileType->height = get_attribute(Node, "height", loc_data, ReqOpt::OPTIONAL).as_uint(1);
+    if (auto span = get_attribute(Node, "layer_span", loc_data, ReqOpt::OPTIONAL)) {
+        std::string token = span.value();
+        int value = 0;
+        auto result = std::from_chars(token.data(), token.data() + token.size(), value);
+        if (result.ec != std::errc{} || result.ptr != token.data() + token.size() || value < 1) {
+            archfpga_throw(loc_data.filename_c_str(), loc_data.line(Node),
+                           "layer_span must be a positive decimal integer representable as int");
+        }
+        PhysicalTileType->layer_span = value;
+    }
     PhysicalTileType->area = get_attribute(Node, "area", loc_data, ReqOpt::OPTIONAL).as_float(UNDEFINED);
 
     if (atof(Prop) < 0) {
@@ -3474,16 +3563,17 @@ static void ProcessPinLocations(pugi::xml_node Locations,
         expect_only_children(Locations, {"loc"}, loc_data);
         Cur = Locations.first_child();
         //check for duplications ([0..3][0..type->width-1][0..type->height-1][0..num_of_avail_layer-1])
-        std::set<std::tuple<e_side, int, int, int>> seen_sides;
+        std::set<std::tuple<e_side, int, int, int, int>> seen_sides;
         while (Cur) {
             check_node(Cur, "loc", loc_data);
 
-            expect_only_attributes(Cur, {"side", "xoffset", "yoffset", "layer_offset"}, loc_data);
+            expect_only_attributes(Cur, {"side", "xoffset", "yoffset", "layer_offset", "pin_layer"}, loc_data);
 
             /* Get offset (height, width, layer) */
             int x_offset = get_attribute(Cur, "xoffset", loc_data, ReqOpt::OPTIONAL).as_int(0);
             int y_offset = get_attribute(Cur, "yoffset", loc_data, ReqOpt::OPTIONAL).as_int(0);
             int layer_offset = pugiutil::get_attribute(Cur, "layer_offset", loc_data, ReqOpt::OPTIONAL).as_int(0);
+            int pin_layer = pugiutil::get_attribute(Cur, "pin_layer", loc_data, ReqOpt::OPTIONAL).as_int(0);
 
             /* Get side */
             e_side side = TOP;
@@ -3519,7 +3609,7 @@ static void ProcessPinLocations(pugi::xml_node Locations,
             }
 
             //Check for duplicate side specifications, since the code below silently overwrites if there are duplicates
-            auto side_offset = std::make_tuple(side, x_offset, y_offset, layer_offset);
+            auto side_offset = std::make_tuple(side, x_offset, y_offset, layer_offset, pin_layer);
             if (seen_sides.count(side_offset)) {
                 archfpga_throw(loc_data.filename_c_str(), loc_data.line(Cur),
                                "Duplicate pin location side/offset specification."
@@ -3534,6 +3624,7 @@ static void ProcessPinLocations(pugi::xml_node Locations,
                 for (int pin = 0; pin < Count; ++pin) {
                     /* Store location assignment */
                     pin_locs->assignments[sub_tile_index][x_offset][y_offset][std::abs(layer_offset)][side].emplace_back(Tokens[pin].c_str());
+                    pin_locs->pin_layers[{sub_tile_index, Tokens[pin].c_str()}] = pin_layer;
                     /* Advance through list of pins in this location */
                 }
             }
@@ -4492,7 +4583,9 @@ static std::vector<t_direct_inf> ProcessDirects(pugi::xml_node Parent,
     /* Load the directs. */
     pugi::xml_node Node = get_first_child(Parent, "direct", loc_data);
     for (int i = 0; i < num_directs; ++i) {
-        expect_only_attributes(Node, {"name", "from_pin", "to_pin", "x_offset", "y_offset", "z_offset", "switch_name", "from_side", "to_side"}, loc_data);
+        expect_only_attributes(Node, {"name", "from_pin", "to_pin", "x_offset", "y_offset", "z_offset", "layer_offset",
+                                      "placement_macro", "switch_name", "from_side", "to_side"},
+                               loc_data);
 
         const char* direct_name = get_attribute(Node, "name", loc_data).value();
         /* Check for direct name collisions */
@@ -4521,6 +4614,8 @@ static std::vector<t_direct_inf> ProcessDirects(pugi::xml_node Parent,
         directs[i].x_offset = get_attribute(Node, "x_offset", loc_data).as_int(0);
         directs[i].y_offset = get_attribute(Node, "y_offset", loc_data).as_int(0);
         directs[i].sub_tile_offset = get_attribute(Node, "z_offset", loc_data).as_int(0);
+        directs[i].layer_offset = get_attribute(Node, "layer_offset", loc_data, ReqOpt::OPTIONAL).as_int(0);
+        directs[i].placement_macro = get_attribute(Node, "placement_macro", loc_data, ReqOpt::OPTIONAL).as_bool(true);
 
         std::string from_side_str = get_attribute(Node, "from_side", loc_data, ReqOpt::OPTIONAL).value();
         directs[i].from_side = string_to_side(from_side_str);

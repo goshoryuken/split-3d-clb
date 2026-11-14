@@ -16,6 +16,9 @@ struct t_grid_tile {
     t_physical_tile_type_ptr type = nullptr; ///<Pointer to type descriptor, NULL for illegal
     int width_offset = 0;                    ///<Number of grid tiles reserved based on width (right) of a block
     int height_offset = 0;                   ///<Number of grid tiles reserved based on height (top) of a block
+    // Upper footprint cells retain the EMPTY type (no extra pins or capacity).
+    // A positive value reserves this cell for the anchor this many layers below.
+    int layer_anchor_offset = 0;
     const t_metadata_dict* meta = nullptr;
 };
 
@@ -78,6 +81,16 @@ class DeviceGrid {
         return grid_[tile_loc.layer_num][tile_loc.x][tile_loc.y].height_offset;
     }
 
+    int get_layer_anchor_offset(const t_physical_tile_loc& loc) const {
+        return grid_[loc.layer_num][loc.x][loc.y].layer_anchor_offset;
+    }
+
+    // The tile owning this cell. Unlike get_physical_type(), a reserved upper
+    // cell resolves to the multi-layer tile anchored below it.
+    t_physical_tile_type_ptr get_footprint_type(const t_physical_tile_loc& loc) const {
+        return grid_[loc.layer_num - get_layer_anchor_offset(loc)][loc.x][loc.y].type;
+    }
+
     ///@brief Returns a rectangle which represents the bounding box of the tile at the given location.
     inline vtr::Rect<int> get_tile_bb(const t_physical_tile_loc& tile_loc) const {
         t_physical_tile_type_ptr tile_type = get_physical_type(tile_loc);
@@ -125,6 +138,7 @@ class DeviceGrid {
   private:
     ///@brief count_instances() counts the number of each tile type on each layer and store it in instance_counts_. It is called in the constructor.
     void count_instances();
+    void reserve_layer_footprints();
 
     std::string name_;
 

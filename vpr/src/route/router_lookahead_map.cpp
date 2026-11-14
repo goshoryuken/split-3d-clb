@@ -21,6 +21,7 @@
  * if there are multiple possibilities).
  */
 
+#include <set>
 #include <cmath>
 #include <vector>
 #include "connection_router_interface.h"
@@ -308,6 +309,22 @@ std::pair<float, float> MapLookahead::get_expected_delay_and_cong(RRNodeId from_
 
     int from_layer_num = rr_graph.node_layer(from_node);
     int to_layer_num = rr_graph.node_layer(to_node);
+    //SINK nodes sit on a tile's anchor, but its pins can be on any layer it covers
+    t_physical_tile_type_ptr to_tile = device_ctx.grid.get_footprint_type({rr_graph.node_xlow(to_node),
+                                                                           rr_graph.node_ylow(to_node),
+                                                                           to_layer_num});
+    if (to_tile->layer_span > 1 && rr_graph.node_type(to_node) == SINK) {
+        std::set<int> pin_layers;
+        for (int pin : get_pin_list_from_class_physical_num(to_tile, rr_graph.node_class_num(to_node))) {
+            pin_layers.insert(to_layer_num + get_pin_physical_layer(to_tile, pin));
+        }
+        if (pin_layers.count(from_layer_num)) {
+            //The target can be entered on the layer we are already on
+            to_layer_num = from_layer_num;
+        } else {
+            to_layer_num = *pin_layers.begin();
+        }
+    }
     auto [delta_x, delta_y] = util::get_xy_deltas(from_node, to_node);
     delta_x = abs(delta_x);
     delta_y = abs(delta_y);
@@ -322,9 +339,9 @@ std::pair<float, float> MapLookahead::get_expected_delay_and_cong(RRNodeId from_
         //reachable, we query the f_wire_cost_map (i.e. the wire lookahead) to get the final
         //delay to reach the sink.
 
-        t_physical_tile_type_ptr from_tile_type = device_ctx.grid.get_physical_type({rr_graph.node_xlow(from_node),
-                                                                                     rr_graph.node_ylow(from_node),
-                                                                                     from_layer_num});
+        t_physical_tile_type_ptr from_tile_type = device_ctx.grid.get_footprint_type({rr_graph.node_xlow(from_node),
+                                                                                      rr_graph.node_ylow(from_node),
+                                                                                      from_layer_num});
 
         auto from_tile_index = std::distance(&device_ctx.physical_tile_types[0], from_tile_type);
 

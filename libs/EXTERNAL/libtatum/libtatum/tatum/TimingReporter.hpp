@@ -9,8 +9,8 @@
 #include "tatum/report/TimingPath.hpp"
 #include "tatum/report/TimingPathCollector.hpp"
 #include "tatum/report/TimingReportTagRetriever.hpp"
-#include "/home/OpenFPGA_LaZagna_merge/OpenFPGA_testing/OpenFPGA/vtr-verilog-to-routing/vpr/src/base/vpr_context.h"
-#include "/home/OpenFPGA_LaZagna_merge/OpenFPGA_testing/OpenFPGA/vtr-verilog-to-routing/vpr/src/pack/prepack.h"
+#include "../../../../../vpr/src/base/vpr_context.h"
+#include "../../../../../vpr/src/pack/prepack.h"
 
 namespace tatum { namespace detail {
 

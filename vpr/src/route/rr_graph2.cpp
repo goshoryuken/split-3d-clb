@@ -1465,8 +1465,10 @@ static void add_pins_spatial_lookup(RRGraphBuilder& rr_graph_builder,
             for (int height_offset = 0; height_offset < physical_type_ptr->height; ++height_offset) {
                 int y_tile = root_y + height_offset;
                 //only nodes on the tile may be located in a location other than the root-location
-                rr_graph_builder.node_lookup().reserve_nodes(layer, x_tile, y_tile, OPIN, physical_type_ptr->num_pins, side);
-                rr_graph_builder.node_lookup().reserve_nodes(layer, x_tile, y_tile, IPIN, physical_type_ptr->num_pins, side);
+                for (int dz = 0; dz < physical_type_ptr->layer_span; ++dz) {
+                    rr_graph_builder.node_lookup().reserve_nodes(layer + dz, x_tile, y_tile, OPIN, physical_type_ptr->num_pins, side);
+                    rr_graph_builder.node_lookup().reserve_nodes(layer + dz, x_tile, y_tile, IPIN, physical_type_ptr->num_pins, side);
+                }
             }
         }
     }
@@ -1478,16 +1480,17 @@ static void add_pins_spatial_lookup(RRGraphBuilder& rr_graph_builder,
         std::vector<e_side> pin_sides;
         std::tie(x_offset, y_offset, pin_sides) = get_pin_coordinates(physical_type_ptr, pin_num, wanted_sides);
         auto pin_type = get_pin_type_from_pin_physical_num(physical_type_ptr, pin_num);
+        const int pin_layer = layer + get_pin_physical_layer(physical_type_ptr, pin_num);
         for (int pin_coord_idx = 0; pin_coord_idx < (int)pin_sides.size(); pin_coord_idx++) {
             int x_tile = root_x + x_offset[pin_coord_idx];
             int y_tile = root_y + y_offset[pin_coord_idx];
             auto side = pin_sides[pin_coord_idx];
             if (pin_type == DRIVER) {
-                rr_graph_builder.node_lookup().add_node(RRNodeId(*index), layer, x_tile, y_tile, OPIN, pin_num, side);
+                rr_graph_builder.node_lookup().add_node(RRNodeId(*index), pin_layer, x_tile, y_tile, OPIN, pin_num, side);
                 assigned_to_rr_node = true;
             } else {
                 VTR_ASSERT(pin_type == RECEIVER);
-                rr_graph_builder.node_lookup().add_node(RRNodeId(*index), layer, x_tile, y_tile, IPIN, pin_num, side);
+                rr_graph_builder.node_lookup().add_node(RRNodeId(*index), pin_layer, x_tile, y_tile, IPIN, pin_num, side);
                 assigned_to_rr_node = true;
             }
         }
@@ -1874,8 +1877,9 @@ int get_track_to_pins(RRGraphBuilder& rr_graph_builder,
 
                         /* Check there is a connection and Fc map isn't wrong */
                         /*int to_node = get_rr_node_index(L_rr_node_indices, x + width_offset, y + height_offset, IPIN, ipin, side);*/
-                        RRNodeId to_node = rr_graph_builder.node_lookup().find_node(layer_index, x, y, IPIN, ipin, side);
-                        int switch_type = (layer_index == layer) ? wire_to_ipin_switch : wire_to_pin_between_dice_switch;
+                        const int pin_layer = layer_index + get_pin_physical_layer(type, ipin);
+                        RRNodeId to_node = rr_graph_builder.node_lookup().find_node(pin_layer, x, y, IPIN, ipin, side);
+                        int switch_type = (pin_layer == layer) ? wire_to_ipin_switch : wire_to_pin_between_dice_switch;
                         if (to_node) {
                             rr_edges_to_create.emplace_back(from_rr_node, to_node, switch_type, false);
                             ++num_conn;

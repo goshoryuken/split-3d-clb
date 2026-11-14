@@ -156,7 +156,7 @@ static void update_cluster_pin_with_post_routing_results(const Netlist<>& net_li
         short valid_routing_net_cnt = 0;
         for (const e_side& pin_side : pin_sides) {
             /* Find the net mapped to this pin in routing results */
-            RRNodeId rr_node = node_lookup.find_node(coord_layer, coord_x, coord_y, rr_node_type, physical_pin, pin_side);
+            RRNodeId rr_node = node_lookup.find_node(coord_layer + get_pin_physical_layer(physical_tile, physical_pin), coord_x, coord_y, rr_node_type, physical_pin, pin_side);
 
             /* Bypass invalid nodes, after that we must have a valid rr_node id */
             if (!rr_node) {

@@ -306,7 +306,7 @@ static void process_nodes(const Netlist<>& net_list, std::ifstream& fp, ClusterN
 
             /* Verify types and ptc*/
             if (tokens[2] == "SOURCE" || tokens[2] == "SINK" || tokens[2] == "OPIN" || tokens[2] == "IPIN") {
-                const auto& type = device_ctx.grid.get_physical_type({x, y, layer_num});
+                const auto& type = device_ctx.grid.get_footprint_type({x, y, layer_num});
                 if (tokens[4 + offset] == "Pad:" && !is_io_type(type)) {
                     vpr_throw(VPR_ERROR_ROUTE, filename, lineno,
                               "Node %d is of the wrong type", inode);
@@ -329,16 +329,16 @@ static void process_nodes(const Netlist<>& net_list, std::ifstream& fp, ClusterN
             /*Process switches and pb pin info if it is ipin or opin type*/
             if (tokens[6 + offset] != "Switch:") {
                 /*This is an opin or ipin, process its pin nums*/
-                auto type = device_ctx.grid.get_physical_type({x, y, layer_num});
+                auto type = device_ctx.grid.get_footprint_type({x, y, layer_num});
                 if (!is_io_type(type) && (tokens[2] == "IPIN" || tokens[2] == "OPIN")) {
                     int pin_num = rr_graph.node_pin_num(RRNodeId(inode));
                     int width_offset = device_ctx.grid.get_width_offset({x, y, layer_num});
                     int height_offset = device_ctx.grid.get_height_offset({x, y, layer_num});
-                    auto physical_tile = device_ctx.grid.get_physical_type({x, y, layer_num});
+                    auto physical_tile = device_ctx.grid.get_footprint_type({x, y, layer_num});
                     auto [sub_tile, sub_tile_rel_cap] = get_sub_tile_from_pin_physical_num(physical_tile, pin_num);
                     int sub_tile_offset = sub_tile->capacity.low + sub_tile_rel_cap;
 
-                    ClusterBlockId iblock = grid_blocks.block_at_location({x - width_offset, y - height_offset, sub_tile_offset, layer_num});
+                    ClusterBlockId iblock = grid_blocks.block_at_location({x - width_offset, y - height_offset, sub_tile_offset, layer_num - device_ctx.grid.get_layer_anchor_offset({x, y, layer_num})});
                     VTR_ASSERT(iblock);
 
                     const t_pb_graph_pin* pb_pin;
@@ -606,7 +606,7 @@ void print_route(const Netlist<>& net_list,
                     switch (rr_type) {
                         case IPIN:
                         case OPIN:
-                            if (is_io_type(device_ctx.grid.get_physical_type({ilow, jlow, layer_num}))) {
+                            if (is_io_type(device_ctx.grid.get_footprint_type({ilow, jlow, layer_num}))) {
                                 fprintf(fp, " Pad: ");
                             } else { /* IO Pad. */
                                 fprintf(fp, " Pin: ");
@@ -620,7 +620,7 @@ void print_route(const Netlist<>& net_list,
 
                         case SOURCE:
                         case SINK:
-                            if (is_io_type(device_ctx.grid.get_physical_type({ilow, jlow, layer_num}))) {
+                            if (is_io_type(device_ctx.grid.get_footprint_type({ilow, jlow, layer_num}))) {
                                 fprintf(fp, " Pad: ");
                             } else { /* IO Pad. */
                                 fprintf(fp, " Class: ");
@@ -636,7 +636,7 @@ void print_route(const Netlist<>& net_list,
 
                     fprintf(fp, "%d  ", rr_graph.node_ptc_num(inode));
 
-                    auto physical_tile = device_ctx.grid.get_physical_type({ilow, jlow, layer_num});
+                    auto physical_tile = device_ctx.grid.get_footprint_type({ilow, jlow, layer_num});
                     if (!is_io_type(physical_tile) && (rr_type == IPIN || rr_type == OPIN)) {
                         int pin_num = rr_graph.node_pin_num(inode);
                         int xoffset = device_ctx.grid.get_width_offset({ilow, jlow, layer_num});
@@ -645,7 +645,7 @@ void print_route(const Netlist<>& net_list,
                         int sub_tile_offset = sub_tile->capacity.low + sub_tile_rel_cap;
 
                         ClusterBlockId iblock = grid_blocks.block_at_location({ilow - xoffset, jlow - yoffset,
-                                                                               sub_tile_offset, layer_num});
+                                                                               sub_tile_offset, layer_num - device_ctx.grid.get_layer_anchor_offset({ilow, jlow, layer_num})});
                         VTR_ASSERT(iblock);
                         const t_pb_graph_pin* pb_pin;
                         if (is_pin_on_tile(physical_tile, pin_num)) {

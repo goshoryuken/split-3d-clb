@@ -60,7 +60,8 @@ void BlkLocRegistry::set_block_location(ClusterBlockId blk_id, const t_pl_loc& l
 
     // Check if block location is out of range of grid dimensions
     if (location.x < 0 || location.x > int(device_ctx.grid.width() - 1)
-        || location.y < 0 || location.y > int(device_ctx.grid.height() - 1)) {
+        || location.y < 0 || location.y > int(device_ctx.grid.height() - 1)
+        || location.layer < 0 || location.layer >= device_ctx.grid.get_num_layers()) {
         VPR_THROW(VPR_ERROR_PLACE, "Block %s with ID %d is out of range at location (%d, %d). \n",
                   block_name.c_str(), blk_id, location.x, location.y);
     }
@@ -86,6 +87,11 @@ void BlkLocRegistry::set_block_location(ClusterBlockId blk_id, const t_pl_loc& l
     }
 
     // Mark the grid location and usage of the block
+    auto occupant = grid_blocks_.block_at_location(location);
+    if (occupant != ClusterBlockId::INVALID() && occupant != blk_id) {
+        VPR_THROW(VPR_ERROR_PLACE, "Attempt to place block %s at an occupied anchor (%d,%d,%d)",
+                  block_name.c_str(), location.x, location.y, location.layer);
+    }
     grid_blocks_.set_block_at_location(location, blk_id);
     grid_blocks_.increment_usage({location.x, location.y, location.layer});
 

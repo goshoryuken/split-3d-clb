@@ -15,6 +15,7 @@
 #include "read_fpga_interchange_arch.h"
 #include "SetupVPR.h"
 #include "pb_type_graph.h"
+#include "pb_type_layers.h"
 #include "pack_types.h"
 #include "lb_type_rr_graph.h"
 #include "echo_arch.h"
@@ -317,6 +318,12 @@ void SetupVPR(const t_options* options,
 
     {
         vtr::ScopedStartFinishTimer t("Building complex block graph");
+        for (const auto& tile : g_vpr_ctx.device().physical_tile_types) {
+            validate_tile_layer_span(tile);
+            if (tile.layer_span > 1 && (routerOpts->flat_routing || options->do_analytical_placement || powerOpts->do_power)) {
+                VPR_THROW(VPR_ERROR_ARCH, "Multi-layer CLBs currently support clustered routing, conventional placement, and no power analysis only");
+            }
+        }
         alloc_and_load_all_pb_graphs(powerOpts->do_power, routerOpts->flat_routing);
         *packerRRGraphs = alloc_and_load_all_lb_type_rr_graph();
     }
@@ -666,6 +673,7 @@ static void SetupPlacerOpts(const t_options& Options, t_placer_opts* PlacerOpts)
     PlacerOpts->tsu_rel_margin = Options.place_tsu_rel_margin;
     PlacerOpts->tsu_abs_margin = Options.place_tsu_abs_margin;
     PlacerOpts->delay_model_type = Options.place_delay_model;
+    PlacerOpts->delay_model_inferred = Options.place_delay_model.provenance() != argparse::Provenance::SPECIFIED;
     PlacerOpts->delay_model_reducer = Options.place_delay_model_reducer;
 
     PlacerOpts->place_freq = PLACE_ONCE; /* DEFAULT */

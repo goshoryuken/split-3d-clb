@@ -127,6 +127,7 @@ struct t_compressed_block_grid {
      */
     inline t_physical_tile_loc grid_loc_to_compressed_loc_approx(t_physical_tile_loc grid_loc) const {
         auto find_closest_compressed_point = [](int loc, const std::vector<int>& compressed_grid_dim) -> int {
+            if (compressed_grid_dim.empty()) return OPEN;
             auto itr = std::lower_bound(compressed_grid_dim.begin(), compressed_grid_dim.end(), loc);
             int cx;
             if (itr < compressed_grid_dim.end() - 1) {

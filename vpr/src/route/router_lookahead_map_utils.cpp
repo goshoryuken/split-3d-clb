@@ -421,7 +421,15 @@ t_src_opin_delays compute_router_src_opin_lookahead(bool is_flat) {
                     }
 
                     //VTR_LOG("Sampling %s at (%d,%d)\n", device_ctx.physical_tile_types[itile].name, sample_loc.x(), sample_loc.y());
-                    const std::vector<RRNodeId>& rr_nodes_at_loc = device_ctx.rr_graph.node_lookup().find_grid_nodes_at_all_sides(sample_loc.layer_num, sample_loc.x, sample_loc.y, rr_type);
+                    //The pins of a multi-layer tile can be on any layer it covers
+                    std::vector<RRNodeId> rr_nodes_at_loc;
+                    if (device_ctx.grid.get_footprint_type(sample_loc) == &device_ctx.physical_tile_types[itile]) {
+                        for (int dz = 0; dz < device_ctx.physical_tile_types[itile].layer_span; ++dz) {
+                            for (RRNodeId node_id : device_ctx.rr_graph.node_lookup().find_grid_nodes_at_all_sides(sample_loc.layer_num + dz, sample_loc.x, sample_loc.y, rr_type)) {
+                                rr_nodes_at_loc.push_back(node_id);
+                            }
+                        }
+                    }
                     for (RRNodeId node_id : rr_nodes_at_loc) {
                         int ptc = rr_graph.node_ptc_num(node_id);
                         // For the time being, we decide to not let the lookahead explore the node inside the clusters
@@ -429,7 +437,8 @@ t_src_opin_delays compute_router_src_opin_lookahead(bool is_flat) {
                             continue;
                         }
 
-                        VTR_ASSERT(ptc < int(src_opin_delays[from_layer_num][itile].size()));
+                        const int node_layer_num = rr_graph.node_layer(node_id);
+                        VTR_ASSERT(ptc < int(src_opin_delays[node_layer_num][itile].size()));
 
                         //Find the wire types which are reachable from inode and record them and
                         //the cost to reach them
@@ -439,7 +448,7 @@ t_src_opin_delays compute_router_src_opin_lookahead(bool is_flat) {
 
                         bool reachable_wire_found = false;
                         for (int to_layer_num = 0; to_layer_num < num_layers; to_layer_num++) {
-                            if (!src_opin_delays[from_layer_num][itile][ptc][to_layer_num].empty()) {
+                            if (!src_opin_delays[node_layer_num][itile][ptc][to_layer_num].empty()) {
                                 reachable_wire_found = true;
                                 break;
                             }
@@ -1276,7 +1285,7 @@ static void dijkstra_flood_to_ipins(RRNodeId node, util::t_chan_ipins_delays& ch
             int node_y = rr_graph.node_ylow(curr.node);
             int node_layer = rr_graph.node_layer(curr.node);
 
-            auto tile_type = device_ctx.grid.get_physical_type({node_x, node_y, node_layer});
+            auto tile_type = device_ctx.grid.get_footprint_type({node_x, node_y, node_layer});
             int itile = tile_type->index;
 
             int ptc = rr_graph.node_ptc_num(curr.node);

@@ -824,7 +824,11 @@ float comp_td_single_connection_delay(const PlaceDelayModel* delay_model,
         }
         // For debugging purposes, write the delay model to file once 
         if (!written){
-            delay_model->write(std::string("delay_model.txt"));
+            // A debug dump only: some delay models cannot be written in every build.
+            try {
+                delay_model->write(std::string("delay_model.txt"));
+            } catch (const VprError&) {
+            }
             written = true;
         }
             

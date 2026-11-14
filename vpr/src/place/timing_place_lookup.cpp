@@ -199,11 +199,22 @@ std::unique_ptr<PlaceDelayModel> compute_place_delay_model(const t_placer_opts& 
     std::unique_ptr<PlaceDelayModel> place_delay_model;
     float min_cross_layer_delay = get_min_cross_layer_delay();
 
-    if (placer_opts.delay_model_type == PlaceDelayModelType::SIMPLE) {
+    PlaceDelayModelType model_type = placer_opts.delay_model_type;
+    const int num_layers = g_vpr_ctx.device().grid.get_num_layers();
+    if (model_type == PlaceDelayModelType::SIMPLE && placer_opts.delay_model_inferred && num_layers > 1) {
+        // The simple model takes delays from the router lookahead, which charges a layer change only
+        // the crossing itself and not the switch onto the other layer's wires, so placement spreads
+        // connected blocks over layers too freely. Measure delays by routing instead.
+        VTR_LOG("Placement delay model: delta, since the device has %d layers and the default simple model "
+                "underestimates changing layers (set --place_delay_model to override)\n", num_layers);
+        model_type = PlaceDelayModelType::DELTA;
+    }
+
+    if (model_type == PlaceDelayModelType::SIMPLE) {
         place_delay_model = std::make_unique<SimpleDelayModel>();
-    } else if (placer_opts.delay_model_type == PlaceDelayModelType::DELTA) {
+    } else if (model_type == PlaceDelayModelType::DELTA) {
         place_delay_model = std::make_unique<DeltaDelayModel>(min_cross_layer_delay, is_flat);
-    } else if (placer_opts.delay_model_type == PlaceDelayModelType::DELTA_OVERRIDE) {
+    } else if (model_type == PlaceDelayModelType::DELTA_OVERRIDE) {
         place_delay_model = std::make_unique<OverrideDelayModel>(min_cross_layer_delay, is_flat);
     } else {
         VTR_ASSERT_MSG(false, "Invalid placer delay model");
@@ -1091,6 +1102,9 @@ static bool find_direct_connect_sample_locations(const t_direct_inf* direct,
     auto& device_ctx = g_vpr_ctx.device();
     auto& grid = device_ctx.grid;
     const auto& node_lookup = device_ctx.rr_graph.node_lookup();
+
+    // Directs between layers are not sampled here; the delta delay model routes them directly.
+    if (direct->layer_offset != 0) return false;
 
     //Search the grid for an instance of from/to blocks which satisfy this direct connect offsets,
     //and which has the appropriate pins

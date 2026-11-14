@@ -711,8 +711,14 @@ t_bb load_net_route_bb(const Netlist<>& net_list,
     int ymin = rr_graph.node_ylow(driver_rr);
     int xmax = rr_graph.node_xhigh(driver_rr);
     int ymax = rr_graph.node_yhigh(driver_rr);
+    // SOURCE and SINK nodes sit on a tile's anchor, but its pins and their
+    // routing can be on any layer the tile covers.
+    auto top_layer_of_tile = [&](RRNodeId node) {
+        return rr_graph.node_layer(node) - 1
+               + device_ctx.grid.get_physical_type({rr_graph.node_xlow(node), rr_graph.node_ylow(node), rr_graph.node_layer(node)})->layer_span;
+    };
     int layer_min = rr_graph.node_layer(driver_rr);
-    int layer_max = rr_graph.node_layer(driver_rr);
+    int layer_max = top_layer_of_tile(driver_rr);
 
     auto net_sinks = net_list.net_sinks(net_id);
     for (size_t ipin = 1; ipin < net_sinks.size() + 1; ++ipin) { //Start at 1 since looping through sinks
@@ -734,7 +740,7 @@ t_bb load_net_route_bb(const Netlist<>& net_list,
         ymin = std::min<int>(ymin, tile_bb.ymin());
         ymax = std::max<int>(ymax, tile_bb.ymax());
         layer_min = std::min<int>(layer_min, rr_graph.node_layer(sink_rr));
-        layer_max = std::max<int>(layer_max, rr_graph.node_layer(sink_rr));
+        layer_max = std::max<int>(layer_max, top_layer_of_tile(sink_rr));
     }
 
     /* Want the channels on all 4 sides to be usable, even if bb_factor = 0. */

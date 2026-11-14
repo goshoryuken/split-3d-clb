@@ -168,8 +168,8 @@ void sync_grid_to_blocks() {
         if (type != device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})) {
             VPR_FATAL_ERROR(VPR_ERROR_PLACE, "A block is in a grid location (%d x %d) layer (%d) with a conflicting types '%s' and '%s' .\n",
                             blk_x, blk_y, blk_layer,
-                            type->name,
-                            device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})->name);
+                            type->name.c_str(),
+                            device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})->name.c_str());
         }
 
         /* Check already in use */
@@ -205,13 +205,13 @@ std::string rr_node_arch_name(RRNodeId inode, bool is_flat) {
     std::string rr_node_arch_name;
     if (rr_graph.node_type(inode) == OPIN || rr_graph.node_type(inode) == IPIN) {
         //Pin names
-        auto type = device_ctx.grid.get_physical_type({rr_graph.node_xlow(rr_node),
+        auto type = device_ctx.grid.get_footprint_type({rr_graph.node_xlow(rr_node),
                                                        rr_graph.node_ylow(rr_node),
                                                        rr_graph.node_layer(rr_node)});
         rr_node_arch_name += block_type_pin_index_to_name(type, rr_graph.node_pin_num(rr_node), is_flat);
     } else if (rr_graph.node_type(inode) == SOURCE || rr_graph.node_type(inode) == SINK) {
         //Set of pins associated with SOURCE/SINK
-        auto type = device_ctx.grid.get_physical_type({rr_graph.node_xlow(rr_node),
+        auto type = device_ctx.grid.get_footprint_type({rr_graph.node_xlow(rr_node),
                                                        rr_graph.node_ylow(rr_node),
                                                        rr_graph.node_layer(rr_node)});
         auto pin_names = block_type_class_index_to_pin_names(type, rr_graph.node_class_num(rr_node), is_flat);
@@ -1973,7 +1973,7 @@ bool is_inter_cluster_node(const RRGraphView& rr_graph_view,
         int y_low = rr_graph_view.node_ylow(node_id);
         int layer = rr_graph_view.node_layer(node_id);
         int node_ptc = rr_graph_view.node_ptc_num(node_id);
-        const t_physical_tile_type_ptr physical_tile = g_vpr_ctx.device().grid.get_physical_type({x_low, y_low, layer});
+        const t_physical_tile_type_ptr physical_tile = g_vpr_ctx.device().grid.get_footprint_type({x_low, y_low, layer});
         if (node_type == IPIN || node_type == OPIN) {
             return is_pin_on_tile(physical_tile, node_ptc);
         } else {
@@ -1991,7 +1991,7 @@ int get_rr_node_max_ptc(const RRGraphView& rr_graph_view,
     VTR_ASSERT(node_type == IPIN || node_type == OPIN || node_type == SINK || node_type == SOURCE);
 
     const DeviceContext& device_ctx = g_vpr_ctx.device();
-    auto physical_type = device_ctx.grid.get_physical_type({rr_graph_view.node_xlow(node_id),
+    auto physical_type = device_ctx.grid.get_footprint_type({rr_graph_view.node_xlow(node_id),
                                                             rr_graph_view.node_ylow(node_id),
                                                             rr_graph_view.node_layer(node_id)});
 
@@ -2016,8 +2016,9 @@ RRNodeId get_pin_rr_node_id(const RRSpatialLookup& rr_spatial_lookup,
     std::tie(x_offset, y_offset, pin_sides) = get_pin_coordinates(physical_tile, pin_physical_num, std::vector<e_side>(TOTAL_2D_SIDES.begin(), TOTAL_2D_SIDES.end()));
     VTR_ASSERT(!x_offset.empty());
     RRNodeId node_id = RRNodeId::INVALID();
+    const int pin_layer = layer + get_pin_physical_layer(physical_tile, pin_physical_num);
     for (int coord_idx = 0; coord_idx < (int)pin_sides.size(); coord_idx++) {
-        node_id = rr_spatial_lookup.find_node(layer,
+        node_id = rr_spatial_lookup.find_node(pin_layer,
                                               root_i + x_offset[coord_idx],
                                               root_j + y_offset[coord_idx],
                                               node_type,

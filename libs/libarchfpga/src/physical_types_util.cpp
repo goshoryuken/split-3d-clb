@@ -670,12 +670,22 @@ bool is_opin(int ipin, t_physical_tile_type_ptr type) {
         return false;
 }
 
+int get_pin_physical_layer(t_physical_tile_type_ptr type, int ipin) {
+    return ipin < (int)type->pin_physical_layer.size() ? type->pin_physical_layer[ipin] : 0;
+}
+
 bool is_pin_conencted_to_layer(t_physical_tile_type_ptr type, int ipin, int from_layer, int to_layer, int num_of_avail_layer) {
     if (type->is_empty()) { //if type is empty, there is no pins
         return false;
     }
     //ipin should be a valid pin in physical type
     VTR_ASSERT(ipin < type->num_pins);
+
+    // from_layer is the tile anchor; connections start from where the pin sits.
+    from_layer += get_pin_physical_layer(type, ipin);
+    if (from_layer >= num_of_avail_layer) {
+        return false;
+    }
 
     int pin_layer_positive = from_layer + type->pin_layer_offset[ipin];
     int pin_layer_negative = from_layer - type->pin_layer_offset[ipin];

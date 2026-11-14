@@ -573,6 +573,8 @@ void alloc_and_load_default_child_for_pb_type(t_pb_type* pb_type,
     copy->num_output_pins = pb_type->num_output_pins;
     copy->num_pins = pb_type->num_pins;
     copy->num_pb = 1;
+    // Keep instance_layer_offsets on the original site. The generated child
+    // retains its default empty vector (zero additional offset).
 
     /* Power */
     copy->pb_type_power = (t_pb_type_power*)vtr::calloc(1,

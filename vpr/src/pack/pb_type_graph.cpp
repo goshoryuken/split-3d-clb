@@ -27,6 +27,7 @@
 
 #include "arch_types.h"
 #include "physical_types.h"
+#include "pb_type_layers.h"
 #include "globals.h"
 #include "vpr_utils.h"
 #include "pb_type_graph.h"
@@ -184,6 +185,10 @@ void alloc_and_load_all_pb_graphs(bool load_power_structures, bool is_flat) {
     for (auto& type : device_ctx.logical_block_types) {
         if (type.pb_type) {
             load_pb_graph_pin_to_pin_annotations(type.pb_graph_head);
+            t_physical_tile_type_ptr tile = pick_physical_type(&type);
+            apply_internal_layer_delays(*type.pb_graph_head, [&](const t_pb_graph_pin& pin) {
+                return get_pin_physical_layer(tile, get_physical_pin(tile, &type, pin.pin_count_in_cluster));
+            });
         }
     }
 }
@@ -243,6 +248,9 @@ static void alloc_and_load_pb_graph(t_pb_graph_node* pb_graph_node,
     pb_graph_node->placement_index = index;
     pb_graph_node->pb_type = pb_type;
     pb_graph_node->parent_pb_graph_node = parent_pb_graph_node;
+    // Validate the concrete site's ancestry, including accumulated overflow.
+    // Absolute placed layers must never be stored in this shared graph.
+    pb_graph_node_layer_offset(*pb_graph_node);
 
     pb_graph_node->num_input_ports = 0;
     pb_graph_node->num_output_ports = 0;
@@ -1611,6 +1619,8 @@ static void echo_pb_rec(const t_pb_graph_node* pb_graph_node, const int level, F
     fprintf(fp, "Physical Block: type \"%s\"  index %d  num_children %d\n",
             pb_graph_node->pb_type->name, pb_graph_node->placement_index,
             pb_graph_node->pb_type->num_pb);
+    print_tabs(fp, level);
+    fprintf(fp, "Root-relative layer offset: %d\n", pb_graph_node_layer_offset(*pb_graph_node));
 
     if (pb_graph_node->parent_pb_graph_node) {
         print_tabs(fp, level + 1);

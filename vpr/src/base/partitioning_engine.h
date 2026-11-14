@@ -43,7 +43,7 @@ class PartitioningEngine {
      * @brief Run the partitioning algorithm
      * @return true if successful
      */
-    bool partition(vtr::vector<AtomBlockId, float>& atom_criticality = nullptr,vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr);
+    bool partition(vtr::vector<AtomBlockId, float>& atom_criticality,vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup);
 
     /**
      * @brief Run partitioning using Triton script

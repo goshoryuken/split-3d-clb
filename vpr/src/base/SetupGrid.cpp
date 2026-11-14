@@ -763,7 +763,10 @@ float calculate_device_utilization(const DeviceGrid& grid, const std::map<t_logi
             for (int y = 0; y < (int)grid.height(); ++y) {
                 int width_offset = grid.get_width_offset({x, y, layer_num});
                 int height_offset = grid.get_height_offset({x, y, layer_num});
-                if (width_offset == 0 && height_offset == 0) {
+                // The anchor contributes its full layer_span below. Reserved
+                // upper cells must not also contribute as ordinary EMPTY tiles.
+                if (width_offset == 0 && height_offset == 0
+                    && grid.get_layer_anchor_offset({x, y, layer_num}) == 0) {
                     const auto& type = grid.get_physical_type({x, y, layer_num});
                     ++grid_resources[type];
                 }
@@ -777,7 +780,7 @@ float calculate_device_utilization(const DeviceGrid& grid, const std::map<t_logi
         t_physical_tile_type_ptr type = kv.first;
         size_t count = kv.second;
 
-        float type_area = type->width * type->height;
+        float type_area = float(type->width) * type->height * type->layer_span;
 
         grid_area += type_area * count;
     }
@@ -793,7 +796,7 @@ float calculate_device_utilization(const DeviceGrid& grid, const std::map<t_logi
 
         size_t count = kv.second;
 
-        float type_area = type->width * type->height;
+        float type_area = float(type->width) * type->height * type->layer_span;
 
         //Instances of multi-capaicty blocks take up less space
         if (type->capacity != 0) {

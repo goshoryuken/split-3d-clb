@@ -224,15 +224,15 @@ static void report_overused_ipin_opin(std::ostream& os,
         os << "On Tile Pin"
            << "\n";
     } else {
-        auto pb_type_name = get_pb_graph_node_from_pin_physical_num(device_ctx.grid.get_physical_type({grid_x, grid_y, grid_layer}),
+        auto pb_type_name = get_pb_graph_node_from_pin_physical_num(device_ctx.grid.get_footprint_type({grid_x, grid_y, grid_layer}),
                                                                     rr_graph.node_ptc_num(node_id))
                                 ->pb_type->name;
-        auto pb_pin = get_pb_pin_from_pin_physical_num(device_ctx.grid.get_physical_type({grid_x, grid_y, grid_layer}),
+        auto pb_pin = get_pb_pin_from_pin_physical_num(device_ctx.grid.get_footprint_type({grid_x, grid_y, grid_layer}),
                                                        rr_graph.node_ptc_num(node_id));
         os << "Intra-Tile Pin - Port : " << pb_pin->port->name << " - PB Type : " << std::string(pb_type_name) << "\n";
     }
     print_block_pins_nets(os,
-                          device_ctx.grid.get_physical_type({grid_x, grid_y, grid_layer}),
+                          device_ctx.grid.get_footprint_type({grid_x, grid_y, grid_layer}),
                           grid_layer,
                           grid_x - device_ctx.grid.get_width_offset({grid_x, grid_y, grid_layer}),
                           grid_y - device_ctx.grid.get_height_offset({grid_x, grid_y, grid_layer}),
@@ -380,7 +380,7 @@ static void log_single_overused_node_status(int overuse_index, RRNodeId node_id)
     int x = rr_graph.node_xlow(node_id);
     int y = rr_graph.node_ylow(node_id);
     int layer_num = rr_graph.node_layer(node_id);
-    auto physical_blk = device_ctx.grid.get_physical_type({x, y, layer_num});
+    auto physical_blk = device_ctx.grid.get_footprint_type({x, y, layer_num});
 
     //Determines if direction or side is available for printing
     auto node_type = rr_graph.node_type(node_id);

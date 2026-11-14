@@ -10,6 +10,16 @@
 
 #include <limits>
 
+TEST_CASE("Empty placement layers have no compressed location", "[layers]") {
+    t_compressed_block_grid grid;
+    grid.compressed_to_grid_x = {{1, 3}, {}};
+    grid.compressed_to_grid_y = {{1, 3}, {}};
+    auto empty = grid.grid_loc_to_compressed_loc_approx({1, 1, 1});
+    REQUIRE(empty.x == OPEN);
+    REQUIRE(empty.y == OPEN);
+    REQUIRE(grid.grid_loc_to_compressed_loc_approx({1, 1, 0}).x == 0);
+}
+
 namespace {
 
 void set_type_tile_to_empty(const int x, const int y,

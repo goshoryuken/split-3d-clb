@@ -85,6 +85,7 @@
 #include "read_place.h"
 
 #include "arch_util.h"
+#include "layer_report.h"
 
 #include "post_routing_pb_pin_fixup.h"
 #include "sync_netlists_to_routing_flat.h"
@@ -498,6 +499,9 @@ bool vpr_flow(t_vpr_setup& vpr_setup, t_arch& arch) {
     }
 
     //close the graphics
+    if (route_status.success() && vpr_setup.RouterOpts.doRouting != STAGE_SKIP) {
+        write_internal_layer_report();
+    }
     vpr_close_graphics(vpr_setup);
 
     return route_status.success();

@@ -27,7 +27,7 @@ std::string describe_rr_node(const RRGraphView& rr_graph,
                                    seg_index);
         }
     } else if (rr_graph.node_type(inode) == IPIN || rr_graph.node_type(inode) == OPIN) {
-        auto type = grid.get_physical_type({rr_graph.node_xlow(inode),
+        auto type = grid.get_footprint_type({rr_graph.node_xlow(inode),
                                             rr_graph.node_ylow(inode),
                                             rr_graph.node_layer(inode)});
 
