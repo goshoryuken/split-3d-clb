@@ -1,0 +1,4 @@
+grid 35x35, 961 interior footprint tiles; routing bonds per tile, by source / by receiving mux / fewer of the two per group
+  clb / clb                     713 tiles  all 696/170/108  ipin 670/82/82  opin 26/88/26
+  complex_dsp / complex_dsp     124 tiles  all 816/236/236  ipin 696/148/148  opin 120/88/88
+  memory / memory               124 tiles  all 736/218/198  ipin 668/130/130  opin 68/88/68

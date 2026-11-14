@@ -1,0 +1,12 @@
+3d 0 sb sb_0_6_4_ inputs=330 cell=16783.416559 core=28566.000 drc=0 slack=-0.434
+3d 0 cbx cbx_0_5_5_ inputs=200 cell=8876.403877 core=15242.818 drc=0 slack=-0.294
+3d 0 cby cby_0_6_4_ inputs=200 cell=8889.729676 core=15242.818 drc=0 slack=-0.378
+3d scale 0 0.9984
+3d 1 sb sb_1_6_4_ inputs=330 cell=16642.485952 core=28261.296 drc=0 slack=-0.373
+3d 1 cbx cbx_1_5_5_ inputs=180 cell=8634.552685 core=14856.224 drc=0 slack=-0.285
+3d 1 cby cby_1_6_4_ inputs=188 cell=8722.152484 core=15021.907 drc=0 slack=-0.251
+3d scale 1 0.9983
+2d 0 sb sb_0_6_4_ inputs=460 cell=24945.640657 core=42365.282 drc=0 slack=-0.388
+2d 0 cbx cbx_0_5_1_ inputs=260 cell=13016.608342 core=22129.128 drc=0 slack=-0.409
+2d 0 cby cby_0_5_5_ inputs=268 cell=13178.481532 core=22418.597 drc=0 slack=-0.481
+2d scale 0 0.9963

@@ -1,0 +1,28 @@
+2D runs: 70 routed, 0 failed
+
+Capacity at each run's grid (mean over benchmarks): LUTs per RAM site, LUTs per DSP site
+  2d                 58.4   58.4  (7 benchmarks)
+  split/columns      58.6   57.3  (7 benchmarks)
+  stack/columns      58.6   57.3  (7 benchmarks)
+
+vs 2D (10-LUT)        CPD  faster   wire  Wmin tracks footprint die cells  failed  seeds
+  (Wmin: minimum tracks per channel per layer; tracks: Wmin times layers, per footprint cell)
+split/columns       0.921     6/7  0.884 1.042  2.084     0.509     1.018       0  1,2,3,4,5,6,7,8,9,10
+stack/columns       0.976     5/7  0.835 0.789  1.578     0.509     1.018       0  1,2,3,4,5,6,7,8,9,10
+
+Split over stacked CLBs, same placement (CPD, wire):
+  columns    0.944 (faster on 5/7)  wire 1.058
+
+split: each placement over columns (CPD, wire):
+
+stack: each placement over columns (CPD, wire):
+
+Per benchmark: mean CPD (ns) over routed seeds [routed/total]; grid
+bench                                  2d    split/columns    stack/columns
+attention_layer         23.32 [10/10] g7022.72 [10/10] g5023.85 [10/10] g50
+bwave_like.fixed.small  21.60 [10/10] g7421.85 [10/10] g5321.78 [10/10] g53
+conv_layer              24.88 [10/10] g7020.00 [10/10] g5024.52 [10/10] g50
+eltwise_layer           14.79 [10/10] g4814.65 [10/10] g3514.40 [10/10] g35
+robot_rl                22.31 [10/10] g5720.64 [10/10] g4121.70 [10/10] g41
+spmv                    17.82 [10/10] g5116.33 [10/10] g3816.86 [10/10] g38
+tpu_like.small.os       21.90 [10/10] g7518.54 [10/10] g5420.31 [10/10] g54

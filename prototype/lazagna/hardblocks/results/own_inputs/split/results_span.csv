@@ -1,0 +1,5 @@
+fabric,fles,chan_width,wire_scale,crossing_ps,bench,luts,grid,seed,routed,cpd_ns,wirelength,hard,layers,rams,dsps,lut_cap,ram_cap,dsp_cap,die_cells
+2d,10,112,1.0,0.0,spmv,6718,51,1,True,18.0926,142295,2d,1,232,16,18130,294,294,2401
+2d,10,112,1.0,0.0,spmv,6718,51,2,True,17.4362,138158,2d,1,232,16,18130,294,294,2401
+3d,20,116,1.0,130.77,spmv,6718,41,1,True,16.975,131206,span,2,232,16,17940,312,312,3042
+3d,20,112,1.0,130.77,spmv,6718,41,2,True,15.8716,133695,span,2,232,16,17940,312,312,3042

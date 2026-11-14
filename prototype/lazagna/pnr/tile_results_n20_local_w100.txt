@@ -1,0 +1,11 @@
+# 20-LUT split CLB with layer-local pins, 100 tracks per layer, spans 4 and 15 (run_tile.sh FLES=20 LOCAL=1),
+# both layers (identical mux counts, scale 0.9989). Core areas in um2, sky130, 0.5 ns clock.
+3d 0 sb  sb_0_6_11_  inputs=555 core=47434.795 drc=0
+3d 0 cbx cbx_0_5_4_  inputs=520 core=34187.789 drc=27
+3d 0 cby cby_0_5_4_  inputs=536 core=34879.086 drc=7
+3d 1 sb  sb_1_6_11_  inputs=555 core=47434.795 drc=0
+3d 1 cbx cbx_1_5_4_  inputs=520 core=34271.582 drc=11
+3d 1 cby cby_1_5_4_  inputs=536 core=34964.784 drc=41
+# Per layer: CLB core 270,400 (520 x 520, pnr_local20c) + routing 116,502 = 386,902 um2,
+# 1.163 of the 2D tile (CLB 245,887 + routing 86,912); width 1.078, so spans 3.7 and 14.8 tiles -> 4 and 15.
+# Silicon per LUT: 2 x 1.163 / 20 = 0.116 against 0.100 for the 10-LUT 2D CLB (1.16x); footprint per LUT 0.58.

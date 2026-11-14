@@ -1,0 +1,59 @@
+2D runs: 20 routed, 0 failed
+
+Capacity at each run's grid (mean over benchmarks): LUTs per RAM site, LUTs per DSP site
+  2d                 58.1   58.1  (5 benchmarks)
+  split/columns      57.8   57.8  (5 benchmarks)
+  split/stacked      59.6   59.6  (5 benchmarks)
+  split/span         62.4   59.0  (5 benchmarks)
+  split/layer        60.0   58.8  (5 benchmarks)
+  stack/columns      57.8   57.8  (5 benchmarks)
+  stack/stacked      59.6   59.6  (5 benchmarks)
+  stack/span         62.4   59.0  (5 benchmarks)
+  stack/layer        60.0   58.8  (5 benchmarks)
+
+vs 2D (10-LUT)        CPD  faster   wire  Wmin tracks footprint die cells  failed  seeds
+  (Wmin: minimum tracks per channel per layer; tracks: Wmin times layers, per footprint cell)
+split/columns       0.900     5/5  0.871 1.054  2.107     0.511     1.023       0  1,2,3,4
+split/stacked       0.915     3/4  0.871 1.045  2.090     0.500     1.000       1  1,2,3,4
+split/span          0.926     4/5  0.920 0.942  1.884     0.618     1.237       0  1,2,3,4
+split/layer         0.902     4/5  0.765 1.351  4.054     0.373     1.118       0  1,2,3,4
+stack/columns       0.965     4/5  0.834 0.781  1.563     0.511     1.023       0  1,2,3,4
+stack/stacked       0.971     4/5  0.828 0.775  1.549     0.500     1.000       0  1,2,3,4
+stack/span          0.995     4/5  0.864 0.660  1.319     0.618     1.237       0  1,2,3,4
+stack/layer         0.930     5/5  0.791 0.755  2.265     0.373     1.118       0  1,2,3,4
+
+Split over stacked CLBs, same placement (CPD, wire):
+  columns    0.933 (faster on 4/5)  wire 1.045
+  stacked    0.927 (faster on 3/4)  wire 1.050
+  span       0.931 (faster on 4/5)  wire 1.064
+  layer      0.969 (faster on 2/5)  wire 0.967
+
+split: each placement over columns (CPD, wire):
+  stacked    1.000 (faster on 2/4)  wire 0.996
+  span       1.028 (faster on 0/5)  wire 1.056
+  layer      1.001 (faster on 3/5)  wire 0.879
+
+stack: each placement over columns (CPD, wire):
+  stacked    1.006 (faster on 3/5)  wire 0.993
+  span       1.030 (faster on 1/5)  wire 1.037
+  layer      0.964 (faster on 3/5)  wire 0.949
+
+Per benchmark: mean CPD (ns) over routed seeds [routed/total]; grid
+bench                                  2d    split/columns    split/stacked       split/span      split/layer    stack/columns    stack/stacked       stack/span      stack/layer
+attention_layer           23.61 [4/4] g70  22.64 [4/4] g50  22.89 [4/4] g50  22.88 [4/4] g55  23.25 [4/4] g44  23.70 [4/4] g50  23.43 [4/4] g50  23.47 [4/4] g55  23.25 [4/4] g44
+conv_layer                25.41 [4/4] g70  20.18 [4/4] g50  19.94 [4/4] g50  20.43 [4/4] g55  19.85 [4/4] g44  24.70 [4/4] g50  26.10 [4/4] g50  25.74 [4/4] g55  23.10 [4/4] g44
+eltwise_layer             14.78 [4/4] g48  14.70 [4/4] g35  15.62 [4/4] g35  14.89 [4/4] g38  14.95 [4/4] g30  14.45 [4/4] g35  14.26 [4/4] g35  14.47 [4/4] g38  14.53 [4/4] g30
+spmv                      17.72 [4/4] g51  16.39 [4/4] g38  15.43 [4/4] g36  16.75 [4/4] g41  16.07 [4/4] g31  16.50 [4/4] g38  17.10 [4/4] g36  17.65 [4/4] g41  17.31 [4/4] g31
+tpu_like.small.os         21.63 [4/4] g75  18.27 [4/4] g54  18.51 [3/4] g54  19.81 [4/4] g60  18.26 [4/4] g47  20.41 [4/4] g54  19.64 [4/4] g54  21.43 [4/4] g60  17.55 [4/4] g47
+
+cost per run     runs mean min max min max GB  slowest
+2d                 20      3.5     9.6   1.27  attention_layer
+split/columns      20      3.9     5.9   1.14  attention_layer
+split/layer        20      4.4     9.2   1.72  tpu_like.small.os
+split/span         20      4.7     8.2   1.14  attention_layer
+split/stacked      20      4.1     6.7   1.09  attention_layer
+stack/columns      20      3.3     7.0   1.36  attention_layer
+stack/layer        20      2.7     7.1   1.35  attention_layer
+stack/span         20      4.1    13.1   1.43  attention_layer
+stack/stacked      20      3.2     6.5   1.35  attention_layer
+all: 180 runs, 11.3 CPU hours (one VPR process per run)

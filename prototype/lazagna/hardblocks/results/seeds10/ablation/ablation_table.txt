@@ -1,0 +1,22 @@
+Strict ablation: split 20-LUT CLB on the stacked fabric's exact routing (pins reach both layers,
+L16 = 16 tiles, l4/l16/cb/route_crossing from 3d10stack_w100). Arch routing sections, pin locations
+and Fc identical to stacked's; only the CLB differs. Stacked and 2D rows from seeds10/{ideal,route}.
+Failed: strict route robot_rl seed 5 (compare_configs drops that design).
+
+== ideal clocks, over stacked (compare_configs.py)
+configuration                       geomean  faster on  per seed
+headline                              0.936     7/7     0.942 0.908 0.943 0.912 0.932 0.942 0.947 0.962 0.946 0.928
+strict                                0.950     6/7     0.966 0.928 0.969 0.909 0.942 0.948 0.979 0.964 0.948 0.954
+
+== route clocks, over stacked (compare_configs.py)
+configuration                       geomean  faster on  per seed
+headline                              0.944     5/7     0.955 0.913 0.963 0.947 0.944 0.941 0.941 0.946 0.961 0.929
+strict                                0.968     4/6     0.991 0.911 1.044 0.953 0.958 0.998 0.965 0.966 0.971 0.928  (1 runs failed)
+
+== matched seeds, all 7 designs (geomean over seeds per design, then over designs)
+ideal: strict/stacked 0.950 (6/7 faster); without conv_layer 0.970
+  per design: attention_layer 0.990, bwave_like.fixed.small 0.994, conv_layer 0.840, eltwise_layer 1.006, robot_rl 0.968, spmv 0.924, tpu_like.small.os 0.941
+  stacked/2D 0.993  strict/2D 0.944  headline/strict 0.985  headline/stacked 0.936
+route: strict/stacked 0.966 (5/7 faster); without conv_layer 0.988
+  per design: attention_layer 0.978, bwave_like.fixed.small 1.031, conv_layer 0.845, eltwise_layer 1.038, robot_rl 0.957, spmv 0.966, tpu_like.small.os 0.961
+  stacked/2D 0.977  strict/2D 0.945  headline/strict 0.976  headline/stacked 0.944

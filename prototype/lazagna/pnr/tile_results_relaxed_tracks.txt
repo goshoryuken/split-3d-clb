@@ -1,0 +1,18 @@
+# Each fabric's routing blocks at 1.3 times its own minimum channel width (bigger designs):
+# the 20-LUT split CLB with layer-local, own-layer input pins at 66 tracks per layer, spans 4 and 16
+# (run_tile.sh FLES=20 LOCAL=1 OWN=1 WIDTH=66), and the 10-LUT 2D fabric at 84 tracks (WIDTH2D=84).
+# Core areas in um2, sky130, 0.5 ns clock, all 0 DRC.
+3d 0 sb  sb_0_6_4_   inputs=360 core=29123.989
+3d 0 cbx cbx_0_5_1_  inputs=168 core=16530.192
+3d 0 cby cby_0_5_5_  inputs=180 core=17855.654
+3d 1 sb  sb_1_6_4_   inputs=360 core=29123.989
+3d 1 cbx cbx_1_5_1_  inputs=168 core=16589.228
+3d 1 cby cby_1_5_5_  inputs=180 core=17855.654
+2d 0 sb  sb_0_6_4_   inputs=379 core=34879.086
+2d 0 cbx cbx_0_5_1_  inputs=220 core=20784.622
+2d 0 cby cby_0_5_5_  inputs=224 core=20784.622
+# Routing per layer: 3D 63,510 / 63,569; 2D 76,449.
+# Tile per layer: 3D CLB 270,400 (laid out, 520 x 520) + 63,540 = 333,940 for 20 LUTs over two layers;
+# 2D CLB 245,887 + 76,449 = 322,336 for 10 LUTs.
+# Silicon per LUT 33,394 against 32,234: 1.036 (1.009 with the 3D CLB at the 2D CLB's cell density,
+# 156,287 / 0.597 = 261,800 um2). Footprint per LUT 16,697 against 32,234: 0.518.

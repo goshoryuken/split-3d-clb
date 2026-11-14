@@ -1,0 +1,17 @@
+Split CLB over LaZagna's stacked CLBs with the in-CLB crossing at the layout values
+(pnr/direct_crossing_results.txt: tap 1.435-0.931 ns = 504 ps; driver+receiver 1.692-0.932 ns = 760 ps;
+SPICE headline 339 ps). Only clb_crossing changed; stacked rows from seeds10/{ideal,route}/stack.
+compare_configs.py drops a design if any seed failed (x504 route: robot_rl s4; x760 route: bwave s7;
+x760 ideal: attention_layer s6).
+
+== ideal clocks
+configuration                       geomean  faster on  per seed
+split339                              0.936     7/7     0.942 0.908 0.943 0.912 0.932 0.942 0.947 0.962 0.946 0.928
+x504                                  0.944     7/7     0.936 0.929 0.953 0.919 0.926 0.961 0.950 0.965 0.948 0.957
+x760                                  0.964     5/6     0.990 0.928 0.984 0.958 0.952 0.951 0.974 0.976 0.953 0.977  (1 runs failed)
+
+== route clocks
+configuration                       geomean  faster on  per seed
+split339                              0.944     5/7     0.955 0.913 0.963 0.947 0.944 0.941 0.941 0.946 0.961 0.929
+x504                                  0.949     4/6     0.980 0.920 0.965 0.938 0.929 0.949 1.003 0.944 0.969 0.901  (1 runs failed)
+x760                                  0.964     5/6     0.967 0.917 0.993 0.971 0.979 0.971 0.974 0.970 0.953 0.943  (1 runs failed)
