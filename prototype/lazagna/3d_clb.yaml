@@ -1,0 +1,22 @@
+# ============================================================
+# LaZagna Setup - two-layer CLB
+# ============================================================
+# One CLB spans layers 0 and 1, with FLEs 0-4 and half the pins on each layer.
+# Pins sit on their layer and can also reach the other layer's routing, which
+# is what type 3d_cb provides.
+# ============================================================
+
+experiment_name: "3d_clb"
+
+grid:
+  width_3d: 14
+  height_3d: 14
+  channel_width: 50
+
+architectures:
+  - type: 3d_cb
+    arch_file: "{lazagna_root}/arch_files/vtr_3d_clb_arch.xml"
+
+benchmarks:
+  directory: "{lazagna_root}/benchmarks/clb_compare"
+  is_verilog: false

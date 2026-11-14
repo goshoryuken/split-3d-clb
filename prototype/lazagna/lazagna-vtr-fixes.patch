@@ -1,0 +1,77 @@
+diff --git a/libs/EXTERNAL/libtatum/libtatum/tatum/TimingReporter.hpp b/libs/EXTERNAL/libtatum/libtatum/tatum/TimingReporter.hpp
+index d705cd3ce..d60d6c6ea 100644
+--- a/libs/EXTERNAL/libtatum/libtatum/tatum/TimingReporter.hpp
++++ b/libs/EXTERNAL/libtatum/libtatum/tatum/TimingReporter.hpp
+@@ -9,8 +9,8 @@
+ #include "tatum/report/TimingPath.hpp"
+ #include "tatum/report/TimingPathCollector.hpp"
+ #include "tatum/report/TimingReportTagRetriever.hpp"
+-#include "/home/OpenFPGA_LaZagna_merge/OpenFPGA_testing/OpenFPGA/vtr-verilog-to-routing/vpr/src/base/vpr_context.h"
+-#include "/home/OpenFPGA_LaZagna_merge/OpenFPGA_testing/OpenFPGA/vtr-verilog-to-routing/vpr/src/pack/prepack.h"
++#include "../../../../../vpr/src/base/vpr_context.h"
++#include "../../../../../vpr/src/pack/prepack.h"
+ 
+ namespace tatum { namespace detail {
+ 
+diff --git a/vpr/src/base/hyper_graph.h b/vpr/src/base/hyper_graph.h
+index a0d4fd9a3..9f24b5a52 100644
+--- a/vpr/src/base/hyper_graph.h
++++ b/vpr/src/base/hyper_graph.h
+@@ -74,7 +74,7 @@ class VprHypergraph {
+      * Returns a vector containing the size of each hyperedge (number of vertices in each hyperedge)
+      * The size of the vector is num_hyperedges_
+      */
+-    std::vector<int> get_edge_weights(float alpha, vtr::vector<AtomBlockId, float>& atom_criticality = nullptr, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr) const;
++    std::vector<int> get_edge_weights(float alpha, vtr::vector<AtomBlockId, float>& atom_criticality, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup) const;
+ 
+     /**
+      * @brief Get the vertex weights
+@@ -82,7 +82,7 @@ class VprHypergraph {
+      * Returns a vector containing the number of hyperedges each vertex is part of
+      * The size of the vector is num_vertices_
+      */
+-    std::vector<int> get_vertices_weights(float beta, vtr::vector<AtomBlockId, float>& atom_criticality = nullptr, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr, bool timing = false) const;
++    std::vector<int> get_vertices_weights(float beta, vtr::vector<AtomBlockId, float>& atom_criticality, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup, bool timing = false) const;
+     
+     /**
+      * @brief Get the hyperedges array
+diff --git a/vpr/src/base/partitioning_engine.cpp b/vpr/src/base/partitioning_engine.cpp
+index 06eacdc18..bf6526a2b 100644
+--- a/vpr/src/base/partitioning_engine.cpp
++++ b/vpr/src/base/partitioning_engine.cpp
+@@ -2,6 +2,7 @@
+ #include "vtr_log.h"
+ #include "vtr_assert.h"
+ #include <fstream>
++#include <sstream>
+ #include <algorithm>
+ #include <map>
+ #include <chrono>
+diff --git a/vpr/src/base/partitioning_engine.h b/vpr/src/base/partitioning_engine.h
+index 5c944bca2..025abaeb0 100644
+--- a/vpr/src/base/partitioning_engine.h
++++ b/vpr/src/base/partitioning_engine.h
+@@ -43,7 +43,7 @@ class PartitioningEngine {
+      * @brief Run the partitioning algorithm
+      * @return true if successful
+      */
+-    bool partition(vtr::vector<AtomBlockId, float>& atom_criticality = nullptr,vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr);
++    bool partition(vtr::vector<AtomBlockId, float>& atom_criticality,vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup);
+ 
+     /**
+      * @brief Run partitioning using Triton script
+diff --git a/vpr/src/util/vpr_utils.cpp b/vpr/src/util/vpr_utils.cpp
+index 2d8796fc2..252236a39 100644
+--- a/vpr/src/util/vpr_utils.cpp
++++ b/vpr/src/util/vpr_utils.cpp
+@@ -168,8 +168,8 @@ void sync_grid_to_blocks() {
+         if (type != device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})) {
+             VPR_FATAL_ERROR(VPR_ERROR_PLACE, "A block is in a grid location (%d x %d) layer (%d) with a conflicting types '%s' and '%s' .\n",
+                             blk_x, blk_y, blk_layer,
+-                            type->name,
+-                            device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})->name);
++                            type->name.c_str(),
++                            device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})->name.c_str());
+         }
+ 
+         /* Check already in use */

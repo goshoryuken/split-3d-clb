@@ -1,0 +1,347 @@
+diff --git a/openfpga/src/annotation/openfpga_annotate_routing.cpp b/openfpga/src/annotation/openfpga_annotate_routing.cpp
+index 27d3cb1..a2d46fd 100644
+--- a/openfpga/src/annotation/openfpga_annotate_routing.cpp
++++ b/openfpga/src/annotation/openfpga_annotate_routing.cpp
+@@ -83,7 +83,7 @@ vtr::vector<RRNodeId, ClusterNetId> annotate_rr_node_global_net(
+           VTR_LOG_ERROR(
+             "When annotating global net '%s', invalid rr node pin type for '%s' "
+             "pin '%d'\n",
+-            cluster_nlist.net_name(net_id).c_str(), phy_tile->name, node_pin_num);
++            cluster_nlist.net_name(net_id).c_str(), phy_tile->name.c_str(), node_pin_num);
+           exit(1);
+         }
+         std::vector<RRNodeId> curr_rr_nodes =
+@@ -91,7 +91,7 @@ vtr::vector<RRNodeId, ClusterNetId> annotate_rr_node_global_net(
+             layer, blk_loc.loc.x, blk_loc.loc.y, rr_pin_type, node_pin_num);
+         for (RRNodeId curr_rr_node : curr_rr_nodes) {
+           VTR_LOGV(verbose, "Annotate global net '%s' on '%s' pin '%d'\n",
+-                  cluster_nlist.net_name(net_id).c_str(), phy_tile->name,
++                  cluster_nlist.net_name(net_id).c_str(), phy_tile->name.c_str(),
+                   node_pin_num);
+           rr_node_nets[curr_rr_node] = net_id;
+           counter++;
+diff --git a/openfpga/src/annotation/vpr_placement_annotation.cpp b/openfpga/src/annotation/vpr_placement_annotation.cpp
+index 1f0d50b..bf1de05 100644
+--- a/openfpga/src/annotation/vpr_placement_annotation.cpp
++++ b/openfpga/src/annotation/vpr_placement_annotation.cpp
+@@ -26,7 +26,7 @@ std::vector<ClusterBlockId> VprPlacementAnnotation::grid_blocks(
+  ***********************************************************************/
+ void VprPlacementAnnotation::init_mapped_blocks(const DeviceGrid& grids) {
+   /* Size the block array with grid sizes */
+-  blocks_.resize({grids.get_num_layers(), grids.width(), grids.height()});
++  blocks_.resize({static_cast<size_t>(grids.get_num_layers()), grids.width(), grids.height()});
+ 
+   /* Resize the number of blocks allowed per grid by the capacity of the type */
+   for (size_t layer = 0; layer < grids.get_num_layers(); ++layer){
+@@ -34,7 +34,7 @@ void VprPlacementAnnotation::init_mapped_blocks(const DeviceGrid& grids) {
+       for (size_t y = 0; y < grids.height(); ++y) {
+         /* Deposit invalid ids and we will fill later */
+         blocks_[layer][x][y].resize(
+-          grids.get_physical_type(t_physical_tile_loc(x, y, 0))->capacity,
++          grids.get_physical_type(t_physical_tile_loc(x, y, layer))->capacity,
+           ClusterBlockId::INVALID());
+       }
+     }
+diff --git a/openfpga/src/base/openfpga_pb_pin_fixup.cpp b/openfpga/src/base/openfpga_pb_pin_fixup.cpp
+index f2c42fc..a36555d 100644
+--- a/openfpga/src/base/openfpga_pb_pin_fixup.cpp
++++ b/openfpga/src/base/openfpga_pb_pin_fixup.cpp
+@@ -185,7 +185,7 @@ static int update_cluster_pin_with_post_routing_results(
+         VTR_LOG_ERROR(
+           "For tile '%s', found pin '%s' on %lu sides. Expect only 1. "
+           "Following info is for debugging:\n",
+-          physical_tile->name,
++          physical_tile->name.c_str(),
+           get_pb_graph_node_pin_from_block_pin(blk_id, physical_pin)
+             ->to_string()
+             .c_str(),
+@@ -204,7 +204,7 @@ static int update_cluster_pin_with_post_routing_results(
+         VTR_LOG_ERROR(
+           "For tile '%s', found pin '%s' on the boundary side '%s', which is "
+           "not physically possible.\n",
+-          physical_tile->name,
++          physical_tile->name.c_str(),
+           get_pb_graph_node_pin_from_block_pin(blk_id, physical_pin)
+             ->to_string()
+             .c_str(),
+@@ -215,7 +215,7 @@ static int update_cluster_pin_with_post_routing_results(
+         VTR_LOG_ERROR(
+           "For tile '%s', found pin '%s' on %lu sides. Expect only 1. "
+           "Following info is for debugging:\n",
+-          physical_tile->name,
++          physical_tile->name.c_str(),
+           get_pb_graph_node_pin_from_block_pin(blk_id, physical_pin)
+             ->to_string()
+             .c_str(),
+@@ -233,7 +233,7 @@ static int update_cluster_pin_with_post_routing_results(
+         VTR_LOG_ERROR(
+           "For boundary tile '%s', expect pin '%s' only on the side '%s' but "
+           "found on the following sides:\n",
+-          physical_tile->name,
++          physical_tile->name.c_str(),
+           get_pb_graph_node_pin_from_block_pin(blk_id, physical_pin)
+             ->to_string()
+             .c_str(),
+diff --git a/openfpga/src/fabric/build_fabric_io_location_map.cpp b/openfpga/src/fabric/build_fabric_io_location_map.cpp
+index b17a07c..f6c9071 100644
+--- a/openfpga/src/fabric/build_fabric_io_location_map.cpp
++++ b/openfpga/src/fabric/build_fabric_io_location_map.cpp
+@@ -76,7 +76,7 @@ static IoLocationMap build_fabric_fine_grained_io_location_map(
+     if (size_t(phy_tile_type->capacity) !=
+         module_manager.io_children(child).size()) {
+       VTR_LOG("%s[%ld][%ld] capacity: %d while io_child number is %d",
+-              phy_tile_type->name, coord.x(), coord.y(),
++              phy_tile_type->name.c_str(), coord.x(), coord.y(),
+               phy_tile_type->capacity,
+               module_manager.io_children(child).size());
+     }
+@@ -213,7 +213,7 @@ static IoLocationMap build_fabric_tiled_io_location_map(
+       if (size_t(phy_tile_type->capacity) !=
+           module_manager.io_children(tile_child).size()) {
+         VTR_LOG("%s[%ld][%ld] capacity: %d while io_child number is %d",
+-                phy_tile_type->name, coord.x(), coord.y(),
++                phy_tile_type->name.c_str(), coord.x(), coord.y(),
+                 phy_tile_type->capacity,
+                 module_manager.io_children(tile_child).size());
+       }
+diff --git a/openfpga/src/fabric/build_grid_modules.cpp b/openfpga/src/fabric/build_grid_modules.cpp
+index 30ad099..f3d2784 100644
+--- a/openfpga/src/fabric/build_grid_modules.cpp
++++ b/openfpga/src/fabric/build_grid_modules.cpp
+@@ -25,6 +25,7 @@
+ #include "openfpga_reserved_words.h"
+ #include "pb_graph_utils.h"
+ #include "pb_type_utils.h"
++#include "pb_type_layers.h"
+ #include "vpr_utils.h"
+ 
+ /* begin namespace openfpga */
+@@ -1059,6 +1060,11 @@ static void rec_build_logical_tile_modules(
+ 
+       /* Add the memory module as a child of primitive module */
+       module_manager.add_child_module(pb_module, child_pb_module);
++      const auto& child_type = physical_mode->pb_type_children[ichild];
++      if (!child_type.instance_layer_offsets.empty()) {
++        module_manager.set_instance_layer_offset(pb_module, child_pb_module, child_instance_id,
++          pb_type_instance_layer_offset(child_type, inst));
++      }
+ 
+       /* Set an instance name to bind to a block in bitstream generation and SDC
+        * generation! */
+diff --git a/openfpga/src/fabric/build_top_module_vertical_connection.cpp b/openfpga/src/fabric/build_top_module_vertical_connection.cpp
+index 63b0a06..ea9ba47 100644
+--- a/openfpga/src/fabric/build_top_module_vertical_connection.cpp
++++ b/openfpga/src/fabric/build_top_module_vertical_connection.cpp
+@@ -281,16 +281,11 @@ namespace openfpga {
+                 return;
+             }
+ 
+-            /* Skip if the cb does not contain any configuration bits! */
+-            if (true == connection_block_contain_only_routing_tracks(rr_gsb, cb_type)) {
+-                return;
+-            }
+-
+-            RRChan cb_input_chan = rr_gsb.cb_input_chan(cb_type);
+-
+-            size_t cb_input_chan_width = cb_input_chan.get_chan_width();
+-
+-            if (cb_input_chan_width == 0){
++            /* Each CB adds the nets it drives, so only its output channel matters.
++             * The directions can differ: a spanning tile with input pins on its
++             * anchor reads the layer above, and that layer's CB has only routing
++             * tracks and an output channel. */
++            if (rr_gsb.cb_output_chan(cb_type).get_chan_width() == 0) {
+                 return;
+             }
+ 
+diff --git a/openfpga/src/fabric/module_manager.cpp b/openfpga/src/fabric/module_manager.cpp
+index 0a69436..1c6e18d 100644
+--- a/openfpga/src/fabric/module_manager.cpp
++++ b/openfpga/src/fabric/module_manager.cpp
+@@ -968,6 +968,17 @@ void ModuleManager::add_child_module(const ModuleId& parent_module,
+ }
+ 
+ /* Set the instance name of a child module */
++int ModuleManager::instance_layer_offset(const ModuleId& parent, const ModuleId& child, size_t instance) const {
++  auto it = instance_layer_offsets_.find(std::make_tuple(parent, child, instance));
++  return it == instance_layer_offsets_.end() ? -1 : it->second;
++}
++
++void ModuleManager::set_instance_layer_offset(const ModuleId& parent, const ModuleId& child, size_t instance, int offset) {
++  VTR_ASSERT(valid_module_id(parent) && valid_module_id(child));
++  VTR_ASSERT(instance < num_instance(parent, child) && offset >= 0);
++  instance_layer_offsets_[std::make_tuple(parent, child, instance)] = offset;
++}
++
+ void ModuleManager::set_child_instance_name(const ModuleId& parent_module,
+                                             const ModuleId& child_module,
+                                             const size_t& instance_id,
+diff --git a/openfpga/src/fabric/module_manager.h b/openfpga/src/fabric/module_manager.h
+index c46e5d8..3c726cf 100644
+--- a/openfpga/src/fabric/module_manager.h
++++ b/openfpga/src/fabric/module_manager.h
+@@ -398,6 +398,9 @@ class ModuleManager {
+                         const ModuleId& child_module,
+                         const bool& is_io_child = true);
+   /* Set the instance name of a child module */
++  // Physical annotation relative to the enclosing module instance; -1 means omitted.
++  int instance_layer_offset(const ModuleId& parent, const ModuleId& child, size_t instance) const;
++  void set_instance_layer_offset(const ModuleId& parent, const ModuleId& child, size_t instance, int offset);
+   void set_child_instance_name(const ModuleId& parent_module,
+                                const ModuleId& child_module,
+                                const size_t& instance_id,
+@@ -555,6 +558,7 @@ class ModuleManager {
+   void invalidate_net_lookup();
+ 
+  private: /* Internal data */
++  std::map<std::tuple<ModuleId, ModuleId, size_t>, int> instance_layer_offsets_;
+   /* Module-level data */
+   vtr::vector<ModuleId, ModuleId> ids_; /* Unique identifier for each Module */
+   vtr::vector<ModuleId, std::string>
+diff --git a/openfpga/src/fpga_spice/spice_grid.cpp b/openfpga/src/fpga_spice/spice_grid.cpp
+index 6826cd4..267963c 100644
+--- a/openfpga/src/fpga_spice/spice_grid.cpp
++++ b/openfpga/src/fpga_spice/spice_grid.cpp
+@@ -290,10 +290,10 @@ static void print_spice_physical_tile_netlist(
+   if (true == is_io_type(phy_block_type)) {
+     SideManager side_manager(border_side);
+     VTR_LOG("Writing SPICE Netlist '%s' for physical tile '%s' at %s side ...",
+-            spice_fname.c_str(), phy_block_type->name, side_manager.c_str());
++            spice_fname.c_str(), phy_block_type->name.c_str(), side_manager.c_str());
+   } else {
+     VTR_LOG("Writing SPICE Netlist '%s' for physical_tile '%s'...",
+-            spice_fname.c_str(), phy_block_type->name);
++            spice_fname.c_str(), phy_block_type->name.c_str());
+   }
+ 
+   /* Create the file stream */
+diff --git a/openfpga/src/fpga_verilog/verilog_grid.cpp b/openfpga/src/fpga_verilog/verilog_grid.cpp
+index 3ef21d5..4a446f5 100644
+--- a/openfpga/src/fpga_verilog/verilog_grid.cpp
++++ b/openfpga/src/fpga_verilog/verilog_grid.cpp
+@@ -315,10 +315,10 @@ static void print_verilog_physical_tile_netlist(
+     SideManager side_manager(border_side);
+     VTR_LOG(
+       "Writing Verilog Netlist '%s' for physical tile '%s' at %s side ...",
+-      verilog_fpath.c_str(), phy_block_type->name, side_manager.c_str());
++      verilog_fpath.c_str(), phy_block_type->name.c_str(), side_manager.c_str());
+   } else {
+     VTR_LOG("Writing Verilog Netlist '%s' for physical_tile '%s'...",
+-            verilog_fpath.c_str(), phy_block_type->name);
++            verilog_fpath.c_str(), phy_block_type->name.c_str());
+   }
+ 
+   /* Create the file stream */
+diff --git a/openfpga/src/fpga_verilog/verilog_module_writer.cpp b/openfpga/src/fpga_verilog/verilog_module_writer.cpp
+index 0fdd012..678f08b 100644
+--- a/openfpga/src/fpga_verilog/verilog_module_writer.cpp
++++ b/openfpga/src/fpga_verilog/verilog_module_writer.cpp
+@@ -473,6 +473,10 @@ static void write_verilog_instance_to_file(std::fstream& fp,
+   VTR_ASSERT(true == valid_file_stream(fp));
+ 
+   /* Print module name */
++  int layer_offset = module_manager.instance_layer_offset(parent_module, child_module, instance_id);
++  if (layer_offset >= 0) {
++    fp << "\t(* vtr_parent_relative_layer_offset = " << layer_offset << " *)\n";
++  }
+   fp << "\t" << module_manager.module_name(child_module) << " ";
+   /* Print instance name:
+    * if we have an instance name, use it;
+diff --git a/openfpga/src/repack/lb_router.cpp b/openfpga/src/repack/lb_router.cpp
+index d2b16af..5a58aed 100644
+--- a/openfpga/src/repack/lb_router.cpp
++++ b/openfpga/src/repack/lb_router.cpp
+@@ -441,7 +441,7 @@ bool LbRouter::try_route(const LbRRGraph& lb_rr_graph,
+       VTR_LOG(
+         "Net %lu '%s' is impossible to route within proposed %s cluster\n",
+         inet, atom_nlist.net_name(lb_net_atom_net_ids_[NetId(inet)]).c_str(),
+-        lb_type_->name);
++        lb_type_->name.c_str());
+       VTR_LOG("\tNet source pin:\n");
+       for (size_t isrc = 0; isrc < lb_net_sources_[NetId(inet)].size();
+            ++isrc) {
+diff --git a/openfpga/src/tile_direct/build_tile_direct.cpp b/openfpga/src/tile_direct/build_tile_direct.cpp
+index 01aa2d7..f564a9b 100644
+--- a/openfpga/src/tile_direct/build_tile_direct.cpp
++++ b/openfpga/src/tile_direct/build_tile_direct.cpp
+@@ -355,7 +355,7 @@ static void report_direct_from_port_and_to_port_mismatch(
+     "From_port '%s[%lu:%lu] of direct '%s' does not match to_port "
+     "'%s[%lu:%lu]'!\n",
+     from_tile_port.get_name().c_str(), from_tile_port.get_lsb(),
+-    from_tile_port.get_msb(), vpr_direct.name, to_tile_port.get_name().c_str(),
++    from_tile_port.get_msb(), vpr_direct.name.c_str(), to_tile_port.get_name().c_str(),
+     to_tile_port.get_lsb(), to_tile_port.get_msb());
+ }
+ 
+@@ -801,7 +801,7 @@ TileDirect build_device_tile_direct(const DeviceContext& device_ctx,
+       VTR_LOG_ERROR(
+         "Unable to find an annotation in openfpga architecture XML for "
+         "<direct> '%s'!\n",
+-        device_ctx.arch->directs[idirect].name);
++        device_ctx.arch->directs[idirect].name.c_str());
+       exit(1);
+     }
+     /* Build from original VPR arch definition */
+diff --git a/openfpga/src/utils/check_tile_annotation.cpp b/openfpga/src/utils/check_tile_annotation.cpp
+index 929a3b2..6b4ed57 100644
+--- a/openfpga/src/utils/check_tile_annotation.cpp
++++ b/openfpga/src/utils/check_tile_annotation.cpp
+@@ -181,7 +181,7 @@ static int check_tile_annotation_conflicts_with_physical_tile(
+                 required_tile_port.get_name().c_str(),
+                 required_tile_port.get_lsb(), required_tile_port.get_msb(),
+                 tile_annotation.global_port_name(tile_global_port).c_str(),
+-                physical_tile.name, tile_port.name);
++                physical_tile.name.c_str(), tile_port.name);
+               num_err++;
+             }
+ 
+@@ -196,7 +196,7 @@ static int check_tile_annotation_conflicts_with_physical_tile(
+                 required_tile_port.get_name().c_str(),
+                 required_tile_port.get_lsb(), required_tile_port.get_msb(),
+                 tile_annotation.global_port_name(tile_global_port).c_str(),
+-                physical_tile.name, tile_port.name);
++                physical_tile.name.c_str(), tile_port.name);
+               num_err++;
+             }
+ 
+@@ -211,7 +211,7 @@ static int check_tile_annotation_conflicts_with_physical_tile(
+                 required_tile_port.get_name().c_str(),
+                 required_tile_port.get_lsb(), required_tile_port.get_msb(),
+                 tile_annotation.global_port_name(tile_global_port).c_str(),
+-                physical_tile.name, tile_port.name, pin_Fc);
++                physical_tile.name.c_str(), tile_port.name, pin_Fc);
+             }
+ 
+             found_matched_physical_tile_port++;
+diff --git a/openfpga/src/utils/openfpga_physical_tile_utils.cpp b/openfpga/src/utils/openfpga_physical_tile_utils.cpp
+index f8f16db..0edc95e 100644
+--- a/openfpga/src/utils/openfpga_physical_tile_utils.cpp
++++ b/openfpga/src/utils/openfpga_physical_tile_utils.cpp
+@@ -72,7 +72,7 @@ float find_physical_tile_pin_Fc(t_physical_tile_type_ptr type, const int& pin) {
+   }
+   /* Every pin should have a Fc, give a wrong value */
+   VTR_LOGF_ERROR(__FILE__, __LINE__, "Fail to find the Fc for %s.pin[%lu]\n",
+-                 type->name, pin);
++                 type->name.c_str(), pin);
+   exit(1);
+ }
+ 
+diff --git a/openfpga/src/utils/rr_gsb_utils.cpp b/openfpga/src/utils/rr_gsb_utils.cpp
+index 9c443fe..2e62640 100644
+--- a/openfpga/src/utils/rr_gsb_utils.cpp
++++ b/openfpga/src/utils/rr_gsb_utils.cpp
+@@ -369,6 +369,14 @@ bool is_cb_mirror(const RRGraphView& rr_graph,
+     return false;
+   }
+ 
++  /* Interlayer channels add module ports, so they must match too */
++  if (base.cb_input_chan(cb_type).get_chan_width() !=
++        cand.cb_input_chan(cb_type).get_chan_width() ||
++      base.cb_output_chan(cb_type).get_chan_width() !=
++        cand.cb_output_chan(cb_type).get_chan_width()) {
++    return false;
++  }
++
+   enum e_side chan_side = base.get_cb_chan_side(cb_type);
+ 
+   /* check the numbers/directionality of channel rr_nodes */

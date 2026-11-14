@@ -1,0 +1,1972 @@
+diff --git a/libs/EXTERNAL/libezgl/CMakeLists.txt b/libs/EXTERNAL/libezgl/CMakeLists.txt
+index 6ab3345d3..d63d2cca6 100644
+--- a/libs/EXTERNAL/libezgl/CMakeLists.txt
++++ b/libs/EXTERNAL/libezgl/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
++cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+ 
+ # create the project
+ project(
+diff --git a/libs/EXTERNAL/libezgl/examples/basic-application/CMakeLists.txt b/libs/EXTERNAL/libezgl/examples/basic-application/CMakeLists.txt
+index 42d1c0e95..a6308d9a4 100644
+--- a/libs/EXTERNAL/libezgl/examples/basic-application/CMakeLists.txt
++++ b/libs/EXTERNAL/libezgl/examples/basic-application/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
++cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+ 
+ project(
+   basic-application
+diff --git a/libs/EXTERNAL/libtatum/libtatum/tatum/TimingReporter.hpp b/libs/EXTERNAL/libtatum/libtatum/tatum/TimingReporter.hpp
+index d705cd3ce..d60d6c6ea 100644
+--- a/libs/EXTERNAL/libtatum/libtatum/tatum/TimingReporter.hpp
++++ b/libs/EXTERNAL/libtatum/libtatum/tatum/TimingReporter.hpp
+@@ -9,8 +9,8 @@
+ #include "tatum/report/TimingPath.hpp"
+ #include "tatum/report/TimingPathCollector.hpp"
+ #include "tatum/report/TimingReportTagRetriever.hpp"
+-#include "/home/OpenFPGA_LaZagna_merge/OpenFPGA_testing/OpenFPGA/vtr-verilog-to-routing/vpr/src/base/vpr_context.h"
+-#include "/home/OpenFPGA_LaZagna_merge/OpenFPGA_testing/OpenFPGA/vtr-verilog-to-routing/vpr/src/pack/prepack.h"
++#include "../../../../../vpr/src/base/vpr_context.h"
++#include "../../../../../vpr/src/pack/prepack.h"
+ 
+ namespace tatum { namespace detail {
+ 
+diff --git a/libs/libarchfpga/src/arch_util.cpp b/libs/libarchfpga/src/arch_util.cpp
+index 80b21308e..3e003aee2 100644
+--- a/libs/libarchfpga/src/arch_util.cpp
++++ b/libs/libarchfpga/src/arch_util.cpp
+@@ -573,6 +573,8 @@ void alloc_and_load_default_child_for_pb_type(t_pb_type* pb_type,
+     copy->num_output_pins = pb_type->num_output_pins;
+     copy->num_pins = pb_type->num_pins;
+     copy->num_pb = 1;
++    // Keep instance_layer_offsets on the original site. The generated child
++    // retains its default empty vector (zero additional offset).
+ 
+     /* Power */
+     copy->pb_type_power = (t_pb_type_power*)vtr::calloc(1,
+diff --git a/libs/libarchfpga/src/device_grid.cpp b/libs/libarchfpga/src/device_grid.cpp
+index 43907f50a..31cf5f61f 100644
+--- a/libs/libarchfpga/src/device_grid.cpp
++++ b/libs/libarchfpga/src/device_grid.cpp
+@@ -1,13 +1,45 @@
+ #include "device_grid.h"
+ 
+ #include <utility>
++#include <set>
++#include <string>
++#include "arch_error.h"
++#include "pb_type_layers.h"
+ 
+ DeviceGrid::DeviceGrid(std::string grid_name, vtr::NdMatrix<t_grid_tile, 3> grid)
+     : name_(std::move(grid_name))
+     , grid_(std::move(grid)) {
++    reserve_layer_footprints();
+     count_instances();
+ }
+ 
++void DeviceGrid::reserve_layer_footprints() {
++    std::set<t_physical_tile_type_ptr> validated;
++    for (int layer = 0; layer < get_num_layers(); ++layer) {
++        for (size_t x = 0; x < width(); ++x) {
++            for (size_t y = 0; y < height(); ++y) {
++                auto& anchor = grid_[layer][x][y];
++                auto type = anchor.type;
++                if (!type) throw ArchFpgaError("Null tile in device grid");
++                if (validated.insert(type).second) validate_tile_layer_span(*type);
++                if (type->layer_span == 1) continue;
++                if (type->layer_span > get_num_layers() - layer) {
++                    throw ArchFpgaError("Tile layer_span extends beyond device layers at anchor ("
++                                       + std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(layer) + ")");
++                }
++                for (int dz = 1; dz < type->layer_span; ++dz) {
++                    auto& cell = grid_[layer + dz][x][y];
++                    if (!cell.type || cell.type->capacity != 0 || cell.layer_anchor_offset != 0) {
++                        throw ArchFpgaError("Multi-layer tile footprint overlaps another tile at ("
++                                           + std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(layer + dz) + ")");
++                    }
++                    cell.layer_anchor_offset = dz;
++                }
++            }
++        }
++    }
++}
++
+ DeviceGrid::DeviceGrid(std::string grid_name,
+                        vtr::NdMatrix<t_grid_tile, 3> grid,
+                        std::vector<t_logical_block_type_ptr> limiting_res)
+diff --git a/libs/libarchfpga/src/device_grid.h b/libs/libarchfpga/src/device_grid.h
+index 8e1332559..e9899061a 100644
+--- a/libs/libarchfpga/src/device_grid.h
++++ b/libs/libarchfpga/src/device_grid.h
+@@ -16,6 +16,9 @@ struct t_grid_tile {
+     t_physical_tile_type_ptr type = nullptr; ///<Pointer to type descriptor, NULL for illegal
+     int width_offset = 0;                    ///<Number of grid tiles reserved based on width (right) of a block
+     int height_offset = 0;                   ///<Number of grid tiles reserved based on height (top) of a block
++    // Upper footprint cells retain the EMPTY type (no extra pins or capacity).
++    // A positive value reserves this cell for the anchor this many layers below.
++    int layer_anchor_offset = 0;
+     const t_metadata_dict* meta = nullptr;
+ };
+ 
+@@ -78,6 +81,16 @@ class DeviceGrid {
+         return grid_[tile_loc.layer_num][tile_loc.x][tile_loc.y].height_offset;
+     }
+ 
++    int get_layer_anchor_offset(const t_physical_tile_loc& loc) const {
++        return grid_[loc.layer_num][loc.x][loc.y].layer_anchor_offset;
++    }
++
++    // The tile owning this cell. Unlike get_physical_type(), a reserved upper
++    // cell resolves to the multi-layer tile anchored below it.
++    t_physical_tile_type_ptr get_footprint_type(const t_physical_tile_loc& loc) const {
++        return grid_[loc.layer_num - get_layer_anchor_offset(loc)][loc.x][loc.y].type;
++    }
++
+     ///@brief Returns a rectangle which represents the bounding box of the tile at the given location.
+     inline vtr::Rect<int> get_tile_bb(const t_physical_tile_loc& tile_loc) const {
+         t_physical_tile_type_ptr tile_type = get_physical_type(tile_loc);
+@@ -125,6 +138,7 @@ class DeviceGrid {
+   private:
+     ///@brief count_instances() counts the number of each tile type on each layer and store it in instance_counts_. It is called in the constructor.
+     void count_instances();
++    void reserve_layer_footprints();
+ 
+     std::string name_;
+ 
+diff --git a/libs/libarchfpga/src/echo_arch.cpp b/libs/libarchfpga/src/echo_arch.cpp
+index 4fb52c415..dcee33d45 100644
+--- a/libs/libarchfpga/src/echo_arch.cpp
++++ b/libs/libarchfpga/src/echo_arch.cpp
+@@ -400,6 +400,13 @@ static void PrintPb_types_rec(FILE* Echo, const t_pb_type* pb_type, int level) {
+     tabs[level] = '\0';
+ 
+     fprintf(Echo, "%spb_type name: %s\n", tabs, pb_type->name);
++    if (!pb_type->instance_layer_offsets.empty()) {
++        fprintf(Echo, "%s\tinstance_layer_offsets:", tabs);
++        for (int offset : pb_type->instance_layer_offsets) {
++            fprintf(Echo, " %d", offset);
++        }
++        fprintf(Echo, "\n");
++    }
+     fprintf(Echo, "%s\tblif_model: %s\n", tabs, pb_type->blif_model);
+     fprintf(Echo, "%s\tclass_type: %d\n", tabs, pb_type->class_type);
+     fprintf(Echo, "%s\tnum_modes: %d\n", tabs, pb_type->num_modes);
+diff --git a/libs/libarchfpga/src/pb_type_layers.cpp b/libs/libarchfpga/src/pb_type_layers.cpp
+new file mode 100644
+index 000000000..a1ec5bb8f
+--- /dev/null
++++ b/libs/libarchfpga/src/pb_type_layers.cpp
+@@ -0,0 +1,146 @@
++#include "pb_type_layers.h"
++
++#include <algorithm>
++#include <limits>
++#include <cmath>
++#include <functional>
++#include <string>
++#include <unordered_set>
++#include "arch_error.h"
++
++namespace {
++int checked_add(int parent, int child) {
++    if (parent < 0 || child < 0 || child > std::numeric_limits<int>::max() - parent) {
++        throw ArchFpgaError("Accumulated internal layer offset overflows int");
++    }
++    return parent + child;
++}
++
++int descendants_max(const t_pb_type& type) {
++    int maximum = 0;
++    for (int m = 0; m < type.num_modes; ++m) {
++        const auto& mode = type.modes[m];
++        for (int c = 0; c < mode.num_pb_type_children; ++c) {
++            const auto& child = mode.pb_type_children[c];
++            int local_max = 0;
++            for (int i = 0; i < child.num_pb; ++i) {
++                local_max = std::max(local_max, pb_type_instance_layer_offset(child, i));
++            }
++            maximum = std::max(maximum, checked_add(local_max, descendants_max(child)));
++        }
++    }
++    return maximum;
++}
++} // namespace
++
++int pb_type_instance_layer_offset(const t_pb_type& type, int instance) {
++    if (instance < 0 || instance >= type.num_pb) {
++        throw ArchFpgaError("Internal layer instance index outside num_pb");
++    }
++    const auto& offsets = type.instance_layer_offsets;
++    if (offsets.empty()) return 0;
++    if (offsets.size() != static_cast<size_t>(type.num_pb) || offsets[instance] < 0) {
++        throw ArchFpgaError("Invalid internal instance_layer_offsets vector");
++    }
++    return offsets[instance];
++}
++
++int pb_graph_node_layer_offset(const t_pb_graph_node& node) {
++    int offset = 0;
++    for (auto current = &node; current; current = current->parent_pb_graph_node) {
++        if (!current->pb_type) throw ArchFpgaError("Internal layer node has no pb_type");
++        if (!current->parent_pb_graph_node) {
++            if (!current->pb_type->instance_layer_offsets.empty()) {
++                throw ArchFpgaError("Root cannot have instance_layer_offsets");
++            }
++            break;
++        }
++        offset = checked_add(offset, pb_type_instance_layer_offset(*current->pb_type, current->placement_index));
++    }
++    return offset;
++}
++
++int pb_type_max_layer_offset(const t_pb_type& root) {
++    if (!root.instance_layer_offsets.empty()) {
++        throw ArchFpgaError("Root cannot have instance_layer_offsets");
++    }
++    return descendants_max(root);
++}
++
++void validate_tile_layer_span(const t_physical_tile_type& tile) {
++    if (tile.layer_span < 1) throw ArchFpgaError("Tile layer_span must be positive");
++    if (tile.layer_span > 1) {
++        if (tile.width != 1 || tile.height != 1 || tile.capacity != 1 || tile.sub_tiles.size() != 1) {
++            throw ArchFpgaError("Multi-layer tiles currently require width=height=capacity=1 and one sub_tile");
++        }
++        for (int offset : tile.pin_layer_offset) {
++            if (offset < 0 || offset >= tile.layer_span) {
++                throw ArchFpgaError("Physical pin lies outside tile layer_span");
++            }
++        }
++    }
++    for (int pin_layer : tile.pin_physical_layer) {
++        if (pin_layer < 0 || pin_layer >= tile.layer_span) {
++            throw ArchFpgaError("pin_layer lies outside tile layer_span");
++        }
++    }
++    for (const auto& sub : tile.sub_tiles) {
++        for (auto logical : sub.equivalent_sites) {
++            if (!logical || !logical->pb_type) {
++                if (tile.layer_span > 1) throw ArchFpgaError("Multi-layer equivalent site has no pb_type");
++                continue;
++            }
++            if (pb_type_max_layer_offset(*logical->pb_type) >= tile.layer_span) {
++                throw ArchFpgaError(std::string("Internal sites of '") + logical->name
++                                   + "' exceed layer_span of equivalent tile '" + tile.name + "'");
++            }
++        }
++    }
++}
++
++void apply_internal_layer_delays(t_pb_graph_node& root,
++                                 const std::function<int(const t_pb_graph_pin&)>& root_pin_layer) {
++    auto pin_layer = [&](const t_pb_graph_pin& pin) {
++        if (root_pin_layer && pin.parent_node == &root) return root_pin_layer(pin);
++        return pb_graph_node_layer_offset(*pin.parent_node);
++    };
++    std::unordered_set<t_pb_graph_edge*> visited;
++    std::function<void(t_pb_graph_node&)> visit = [&](t_pb_graph_node& node) {
++        auto visit_ports = [&](t_pb_graph_pin** ports, int count, int* sizes) {
++            for (int p = 0; p < count; ++p) {
++                for (int i = 0; i < sizes[p]; ++i) {
++                    auto& pin = ports[p][i];
++                    for (int e = 0; e < pin.num_output_edges; ++e) {
++                        auto edge = pin.output_edges[e];
++                        if (!visited.insert(edge).second || !edge->interconnect) continue;
++                        double per_layer = edge->interconnect->layer_crossing_delay;
++                        if (per_layer == 0.) continue;
++                        if (edge->num_input_pins != 1 || edge->num_output_pins != 1) {
++                            throw ArchFpgaError("layer_crossing_delay requires single-source single-sink graph edges");
++                        }
++                        int from = pin_layer(*edge->input_pins[0]);
++                        int to = pin_layer(*edge->output_pins[0]);
++                        double delta = per_layer * std::abs(from - to);
++                        double max_delay = edge->delay_max + delta;
++                        double min_delay = edge->delay_min + delta;
++                        if (!std::isfinite(delta) || delta < 0. || !std::isfinite(max_delay)
++                            || !std::isfinite(min_delay) || max_delay > std::numeric_limits<float>::max()
++                            || min_delay > std::numeric_limits<float>::max()) {
++                            throw ArchFpgaError("Internal layer crossing delay overflows finite timing storage");
++                        }
++                        edge->delay_max = max_delay;
++                        edge->delay_min = min_delay;
++                    }
++                }
++            }
++        };
++        visit_ports(node.input_pins, node.num_input_ports, node.num_input_pins);
++        visit_ports(node.output_pins, node.num_output_ports, node.num_output_pins);
++        visit_ports(node.clock_pins, node.num_clock_ports, node.num_clock_pins);
++        for (int m = 0; m < node.pb_type->num_modes; ++m)
++            for (int c = 0; c < node.pb_type->modes[m].num_pb_type_children; ++c)
++                for (int i = 0; i < node.pb_type->modes[m].pb_type_children[c].num_pb; ++i)
++                    visit(node.child_pb_graph_nodes[m][c][i]);
++    };
++    visit(root);
++}
+diff --git a/libs/libarchfpga/src/pb_type_layers.h b/libs/libarchfpga/src/pb_type_layers.h
+new file mode 100644
+index 000000000..d356b832e
+--- /dev/null
++++ b/libs/libarchfpga/src/pb_type_layers.h
+@@ -0,0 +1,25 @@
++#ifndef PB_TYPE_LAYERS_H
++#define PB_TYPE_LAYERS_H
++
++#include <functional>
++#include "physical_types.h"
++
++// Architectural offsets only. These functions never store a placed coordinate
++// in a shared type or graph. Invalid indices and accumulated overflow throw.
++int pb_type_instance_layer_offset(const t_pb_type& type, int instance);
++int pb_graph_node_layer_offset(const t_pb_graph_node& node);
++
++// Maximum root-relative offset over every instance and every alternative mode.
++// The root itself is on offset zero. Does not require building the routing graph.
++int pb_type_max_layer_offset(const t_pb_type& root);
++
++// All equivalent sites and modes must fit; no mode-dependent footprints.
++void validate_tile_layer_span(const t_physical_tile_type& tile);
++
++// Apply once, after ordinary timing annotations. Adds to min and max delay.
++// root_pin_layer gives the layer of a pin on the root block, which the tile's
++// pin_layer can place above the root; by default such pins are on offset zero.
++void apply_internal_layer_delays(t_pb_graph_node& root,
++                                 const std::function<int(const t_pb_graph_pin&)>& root_pin_layer = nullptr);
++
++#endif
+diff --git a/libs/libarchfpga/src/physical_types.h b/libs/libarchfpga/src/physical_types.h
+index d4572506b..2e9892a6a 100644
+--- a/libs/libarchfpga/src/physical_types.h
++++ b/libs/libarchfpga/src/physical_types.h
+@@ -666,6 +666,13 @@ struct t_physical_tile_type {
+     int width = 0;
+     int height = 0;
+ 
++    // Physical footprint extends upward from the anchor layer, inclusive.
++    // Initial multi-layer support is restricted to 1x1, capacity-one tiles.
++    // pin_layer on a <loc> places pins on an upper layer of the tile; they sit
++    // on the anchor by default. layer_offset separately lets a pin reach the
++    // routing one layer away from wherever it sits.
++    int layer_span = 1;
++
+     vtr::NdMatrix<std::vector<bool>, 3> pinloc; /* [0..width-1][0..height-1][0..3][0..num_pins-1] */
+ 
+     std::vector<t_class> class_inf; /* [0..num_class-1] */
+@@ -677,6 +684,7 @@ struct t_physical_tile_type {
+     std::unordered_map<int, t_class> primitive_class_inf; // [primitive_class_num] -> primitive_class_inf
+ 
+     std::vector<int> pin_layer_offset;                // [0..num_pins-1]
++    std::vector<int> pin_physical_layer;              // [0..num_pins-1] Layer of the pin, relative to the anchor.
+     std::vector<int> pin_width_offset;                // [0..num_pins-1]
+     std::vector<int> pin_height_offset;               // [0..num_pins-1]
+     std::vector<int> pin_class;                       // [0..num_pins-1]
+@@ -1011,6 +1019,11 @@ struct t_logical_block_type {
+ struct t_pb_type {
+     char* name = nullptr;
+     int num_pb = 0;
++    // Proposed internal-site layer offsets relative to the immediate parent.
++    // Empty means omitted (zero offset for every instance); otherwise num_pb
++    // nonnegative entries indexed by the instance's placement_index.
++    // Root placement and hierarchy depth are separate from these offsets.
++    std::vector<int> instance_layer_offsets;
+     char* blif_model = nullptr;
+     t_model* model = nullptr;
+     enum e_pb_type_class class_type = UNKNOWN_CLASS;
+@@ -1104,6 +1117,9 @@ struct t_interconnect {
+     t_pin_to_pin_annotation* annotations = nullptr; /* [0..num_annotations-1] */
+     int num_annotations = 0;
+     bool infer_annotations = false;
++    // Optional additional delay in seconds per crossed internal layer.
++    // This is an architecture parameter, not a measured physical model.
++    double layer_crossing_delay = 0.;
+ 
+     int line_num = 0; /* Interconnect is processed later, need to know what line number it messed up on to give proper error message */
+ 
+diff --git a/libs/libarchfpga/src/physical_types_util.cpp b/libs/libarchfpga/src/physical_types_util.cpp
+index d84b0fbec..a6fe4a91b 100644
+--- a/libs/libarchfpga/src/physical_types_util.cpp
++++ b/libs/libarchfpga/src/physical_types_util.cpp
+@@ -670,6 +670,10 @@ bool is_opin(int ipin, t_physical_tile_type_ptr type) {
+         return false;
+ }
+ 
++int get_pin_physical_layer(t_physical_tile_type_ptr type, int ipin) {
++    return ipin < (int)type->pin_physical_layer.size() ? type->pin_physical_layer[ipin] : 0;
++}
++
+ bool is_pin_conencted_to_layer(t_physical_tile_type_ptr type, int ipin, int from_layer, int to_layer, int num_of_avail_layer) {
+     if (type->is_empty()) { //if type is empty, there is no pins
+         return false;
+@@ -677,6 +681,12 @@ bool is_pin_conencted_to_layer(t_physical_tile_type_ptr type, int ipin, int from
+     //ipin should be a valid pin in physical type
+     VTR_ASSERT(ipin < type->num_pins);
+ 
++    // from_layer is the tile anchor; connections start from where the pin sits.
++    from_layer += get_pin_physical_layer(type, ipin);
++    if (from_layer >= num_of_avail_layer) {
++        return false;
++    }
++
+     int pin_layer_positive = from_layer + type->pin_layer_offset[ipin];
+     int pin_layer_negative = from_layer - type->pin_layer_offset[ipin];
+ 
+diff --git a/libs/libarchfpga/src/physical_types_util.h b/libs/libarchfpga/src/physical_types_util.h
+index aa7b26178..4d6274454 100644
+--- a/libs/libarchfpga/src/physical_types_util.h
++++ b/libs/libarchfpga/src/physical_types_util.h
+@@ -118,6 +118,9 @@
+ bool is_opin(int ipin, t_physical_tile_type_ptr type);
+ 
+ ///@brief Returns true if the specified pin is located at "from_layer" and it is connected to "to_layer"
++///@brief Layer a physical pin sits on, relative to the tile anchor.
++int get_pin_physical_layer(t_physical_tile_type_ptr type, int ipin);
++
+ bool is_pin_conencted_to_layer(t_physical_tile_type_ptr type, int ipin, int from_layer, int to_layer, int num_of_avail_layer);
+ 
+ ///@brief Returns true if the given physical tile type can implement a .input block type
+diff --git a/libs/libarchfpga/src/read_xml_arch_file.cpp b/libs/libarchfpga/src/read_xml_arch_file.cpp
+index 796894e16..04cf0120a 100644
+--- a/libs/libarchfpga/src/read_xml_arch_file.cpp
++++ b/libs/libarchfpga/src/read_xml_arch_file.cpp
+@@ -37,6 +37,10 @@
+  */
+ 
+ #include <cstring>
++#include <charconv>
++#include <cmath>
++#include <exception>
++#include <system_error>
+ #include <map>
+ #include <set>
+ #include <string>
+@@ -64,6 +68,7 @@
+ #include "parse_switchblocks.h"
+ 
+ #include "physical_types_util.h"
++#include "pb_type_layers.h"
+ #include "vtr_expr_eval.h"
+ 
+ #include "read_xml_arch_file_noc_tag.h"
+@@ -100,6 +105,9 @@ struct t_pin_locs {
+     /* [0..num_sub_tiles-1][0..width-1][0..height-1][0..num_of_layer-1][0..3][0..num_tokens-1] */
+     vtr::NdMatrix<std::vector<std::string>, 5> assignments;
+ 
++    /* Tile-relative pin_layer of each assignment token, by sub-tile. */
++    std::map<std::pair<int, std::string>, int> pin_layers;
++
+     bool is_distribution_set() const {
+         return distribution_set;
+     }
+@@ -479,6 +487,18 @@ void XmlReadArch(const char* ArchFile,
+         /* Link Physical Tiles with Logical Blocks */
+         link_physical_logical_types(PhysicalTileTypes, LogicalBlockTypes);
+ 
++        // Preserve metadata-only parser fixtures when no physical span is given.
++        // VPR validates every tile before using it, including implicit span=1.
++        for (auto tile_node : get_single_child(architecture, "tiles", loc_data).children("tile")) {
++            if (tile_node.attribute("layer_span")) {
++                for (const auto& tile : PhysicalTileTypes) {
++                    if (tile.name == tile_node.attribute("name").value()) {
++                        validate_tile_layer_span(tile);
++                    }
++                }
++            }
++        }
++
+         /* Process directs */
+         Next = get_single_child(architecture, "directlist", loc_data, ReqOpt::OPTIONAL);
+         if (Next) {
+@@ -580,6 +600,7 @@ static void LoadPinLoc(pugi::xml_node Locations,
+     type->pin_height_offset.resize(type->num_pins, 0);
+     //layer_offset is not used if the distribution is not custom
+     type->pin_layer_offset.resize(type->num_pins, 0);
++    type->pin_physical_layer.resize(type->num_pins, 0);
+ 
+     std::vector<int> physical_pin_counts(type->num_pins, 0);
+     if (pin_locs->distribution == e_pin_location_distr::SPREAD) {
+@@ -729,6 +750,7 @@ static void LoadPinLoc(pugi::xml_node Locations,
+                                         type->pin_width_offset[physical_pin_index] += width;
+                                         type->pin_height_offset[physical_pin_index] += height;
+                                         type->pin_layer_offset[physical_pin_index] = layer;
++                                        type->pin_physical_layer[physical_pin_index] = pin_locs->pin_layers[{sub_tile_index, token}];
+                                         physical_pin_counts[physical_pin_index] += 1;
+                                     }
+                                 }
+@@ -1315,6 +1337,46 @@ static void ProcessPb_TypePowerEstMethod(pugi::xml_node Parent, t_pb_type* pb_ty
+     }
+ }
+ 
++// Parsing records parent-relative assignments. Graph resolution and physical
++// validation are performed separately by pb_type_layers and the VPR consumers.
++static void ProcessInstanceLayerOffsets(pugi::xml_node node,
++                                        t_pb_type* pb_type,
++                                        bool is_root_pb_type,
++                                        const pugiutil::loc_data& loc_data) {
++    auto attr = get_attribute(node, "instance_layer_offsets", loc_data, ReqOpt::OPTIONAL);
++    if (!attr) {
++        return;
++    }
++    if (is_root_pb_type) {
++        archfpga_throw(loc_data.filename_c_str(), loc_data.line(node),
++                       "instance_layer_offsets is allowed only on internal pb_type elements; "
++                       "root pb_type '%s' gets its layer from placement/layout.", pb_type->name);
++    }
++
++    std::istringstream entries(attr.value());
++    std::string token;
++    while (entries >> token) {
++        int offset = 0;
++        auto result = std::from_chars(token.data(), token.data() + token.size(), offset);
++        // Require decimal digits only: no signs, fractions, or trailing text.
++        bool digits_only = std::all_of(token.begin(), token.end(), [](char c) {
++            return c >= '0' && c <= '9';
++        });
++        if (!digits_only || result.ec != std::errc{} || result.ptr != token.data() + token.size()) {
++            archfpga_throw(loc_data.filename_c_str(), loc_data.line(node),
++                           "Invalid instance_layer_offsets entry '%s' for pb_type '%s': "
++                           "expected a nonnegative decimal integer representable as int.",
++                           token.c_str(), pb_type->name);
++        }
++        pb_type->instance_layer_offsets.push_back(offset);
++    }
++    if (pb_type->instance_layer_offsets.size() != static_cast<size_t>(pb_type->num_pb)) {
++        archfpga_throw(loc_data.filename_c_str(), loc_data.line(node),
++                       "instance_layer_offsets for pb_type '%s' requires exactly num_pb=%d entries; got %zu.",
++                       pb_type->name, pb_type->num_pb, pb_type->instance_layer_offsets.size());
++    }
++}
++
+ /* Takes in a pb_type, allocates and loads data for it and recurses downwards */
+ static void ProcessPb_Type(pugi::xml_node Parent,
+                            t_pb_type* pb_type,
+@@ -1399,6 +1461,8 @@ static void ProcessPb_Type(pugi::xml_node Parent,
+ 
+     VTR_ASSERT(pb_type->num_pb > 0);
+ 
++    ProcessInstanceLayerOffsets(Parent, pb_type, is_root_pb_type, loc_data);
++
+     const int num_in_ports = count_children(Parent, "input", loc_data, ReqOpt::OPTIONAL);
+     const int num_out_ports = count_children(Parent, "output", loc_data, ReqOpt::OPTIONAL);
+     const int num_clock_ports = count_children(Parent, "clock", loc_data, ReqOpt::OPTIONAL);
+@@ -1838,6 +1902,21 @@ static void ProcessInterconnect(vtr::string_internment& strings,
+             }
+ 
+             mode->interconnect[interconnect_idx].line_num = loc_data.line(Cur);
++            if (auto delay = get_attribute(Cur, "layer_crossing_delay", loc_data, ReqOpt::OPTIONAL)) {
++                std::string token = delay.value();
++                size_t consumed = 0;
++                double value = -1.;
++                try {
++                    value = std::stod(token, &consumed);
++                } catch (const std::exception&) {
++                    // Report malformed and out-of-range values as architecture errors below.
++                }
++                if (consumed != token.size() || !std::isfinite(value) || value < 0.) {
++                    archfpga_throw(loc_data.filename_c_str(), loc_data.line(Cur),
++                                   "layer_crossing_delay must be finite nonnegative seconds");
++                }
++                mode->interconnect[interconnect_idx].layer_crossing_delay = value;
++            }
+ 
+             mode->interconnect[interconnect_idx].parent_mode_index = mode->index;
+             mode->interconnect[interconnect_idx].parent_mode = mode;
+@@ -3143,7 +3222,7 @@ static void MarkIoTypes(std::vector<t_physical_tile_type>& PhysicalTileTypes) {
+ static void ProcessTileProps(pugi::xml_node Node,
+                              t_physical_tile_type* PhysicalTileType,
+                              const pugiutil::loc_data& loc_data) {
+-    expect_only_attributes(Node, {"name", "width", "height", "area"}, loc_data);
++    expect_only_attributes(Node, {"name", "width", "height", "area", "layer_span"}, loc_data);
+ 
+     /* Load type name */
+     auto Prop = get_attribute(Node, "name", loc_data).value();
+@@ -3152,6 +3231,16 @@ static void ProcessTileProps(pugi::xml_node Node,
+     /* Load properties */
+     PhysicalTileType->width = get_attribute(Node, "width", loc_data, ReqOpt::OPTIONAL).as_uint(1);
+     PhysicalTileType->height = get_attribute(Node, "height", loc_data, ReqOpt::OPTIONAL).as_uint(1);
++    if (auto span = get_attribute(Node, "layer_span", loc_data, ReqOpt::OPTIONAL)) {
++        std::string token = span.value();
++        int value = 0;
++        auto result = std::from_chars(token.data(), token.data() + token.size(), value);
++        if (result.ec != std::errc{} || result.ptr != token.data() + token.size() || value < 1) {
++            archfpga_throw(loc_data.filename_c_str(), loc_data.line(Node),
++                           "layer_span must be a positive decimal integer representable as int");
++        }
++        PhysicalTileType->layer_span = value;
++    }
+     PhysicalTileType->area = get_attribute(Node, "area", loc_data, ReqOpt::OPTIONAL).as_float(UNDEFINED);
+ 
+     if (atof(Prop) < 0) {
+@@ -3474,16 +3563,17 @@ static void ProcessPinLocations(pugi::xml_node Locations,
+         expect_only_children(Locations, {"loc"}, loc_data);
+         Cur = Locations.first_child();
+         //check for duplications ([0..3][0..type->width-1][0..type->height-1][0..num_of_avail_layer-1])
+-        std::set<std::tuple<e_side, int, int, int>> seen_sides;
++        std::set<std::tuple<e_side, int, int, int, int>> seen_sides;
+         while (Cur) {
+             check_node(Cur, "loc", loc_data);
+ 
+-            expect_only_attributes(Cur, {"side", "xoffset", "yoffset", "layer_offset"}, loc_data);
++            expect_only_attributes(Cur, {"side", "xoffset", "yoffset", "layer_offset", "pin_layer"}, loc_data);
+ 
+             /* Get offset (height, width, layer) */
+             int x_offset = get_attribute(Cur, "xoffset", loc_data, ReqOpt::OPTIONAL).as_int(0);
+             int y_offset = get_attribute(Cur, "yoffset", loc_data, ReqOpt::OPTIONAL).as_int(0);
+             int layer_offset = pugiutil::get_attribute(Cur, "layer_offset", loc_data, ReqOpt::OPTIONAL).as_int(0);
++            int pin_layer = pugiutil::get_attribute(Cur, "pin_layer", loc_data, ReqOpt::OPTIONAL).as_int(0);
+ 
+             /* Get side */
+             e_side side = TOP;
+@@ -3519,7 +3609,7 @@ static void ProcessPinLocations(pugi::xml_node Locations,
+             }
+ 
+             //Check for duplicate side specifications, since the code below silently overwrites if there are duplicates
+-            auto side_offset = std::make_tuple(side, x_offset, y_offset, layer_offset);
++            auto side_offset = std::make_tuple(side, x_offset, y_offset, layer_offset, pin_layer);
+             if (seen_sides.count(side_offset)) {
+                 archfpga_throw(loc_data.filename_c_str(), loc_data.line(Cur),
+                                "Duplicate pin location side/offset specification."
+@@ -3534,6 +3624,7 @@ static void ProcessPinLocations(pugi::xml_node Locations,
+                 for (int pin = 0; pin < Count; ++pin) {
+                     /* Store location assignment */
+                     pin_locs->assignments[sub_tile_index][x_offset][y_offset][std::abs(layer_offset)][side].emplace_back(Tokens[pin].c_str());
++                    pin_locs->pin_layers[{sub_tile_index, Tokens[pin].c_str()}] = pin_layer;
+                     /* Advance through list of pins in this location */
+                 }
+             }
+diff --git a/libs/libarchfpga/test/test_pb_type_layers.cpp b/libs/libarchfpga/test/test_pb_type_layers.cpp
+new file mode 100644
+index 000000000..54cbe59f0
+--- /dev/null
++++ b/libs/libarchfpga/test/test_pb_type_layers.cpp
+@@ -0,0 +1,241 @@
++#include <limits>
++#include "catch2/catch_test_macros.hpp"
++#include "catch2/catch_approx.hpp"
++#include "arch_error.h"
++#include "pb_type_layers.h"
++#include "device_grid.h"
++#include "physical_types_util.h"
++
++TEST_CASE("Internal site offsets follow instance ancestry", "[layers]") {
++    t_pb_type root, fle, child;
++    root.num_pb = 1;
++    fle.num_pb = 2;
++    fle.instance_layer_offsets = {0, 1};
++    child.num_pb = 1;
++    t_pb_graph_node r{}, f{}, c{};
++    r.pb_type = &root;
++    f.pb_type = &fle;
++    f.parent_pb_graph_node = &r;
++    f.placement_index = 1;
++    c.pb_type = &child;
++    c.parent_pb_graph_node = &f;
++    REQUIRE(pb_graph_node_layer_offset(r) == 0);
++    REQUIRE(pb_graph_node_layer_offset(f) == 1);
++    REQUIRE(pb_graph_node_layer_offset(c) == 1); // omitted/generated child
++    child.instance_layer_offsets = {2};
++    REQUIRE(pb_graph_node_layer_offset(c) == 3);
++    f.placement_index = 0;
++    REQUIRE(pb_graph_node_layer_offset(c) == 2);
++    f.placement_index = 2;
++    REQUIRE_THROWS_AS(pb_graph_node_layer_offset(c), ArchFpgaError);
++    f.placement_index = -1;
++    REQUIRE_THROWS_AS(pb_graph_node_layer_offset(f), ArchFpgaError);
++    f.placement_index = 1;
++    child.instance_layer_offsets = {std::numeric_limits<int>::max()};
++    REQUIRE_THROWS_AS(pb_graph_node_layer_offset(c), ArchFpgaError);
++    child.instance_layer_offsets = {-1};
++    REQUIRE_THROWS_AS(pb_graph_node_layer_offset(c), ArchFpgaError);
++    root.instance_layer_offsets = {0};
++    REQUIRE_THROWS_AS(pb_graph_node_layer_offset(r), ArchFpgaError);
++}
++
++TEST_CASE("Layer envelope includes every alternative mode", "[layers]") {
++    t_pb_type root, children[2], grandchild;
++    t_mode modes[2], inner;
++    root.num_pb = 1;
++    root.modes = modes;
++    root.num_modes = 2;
++    for (int i = 0; i < 2; ++i) {
++        modes[i].pb_type_children = &children[i];
++        modes[i].num_pb_type_children = 1;
++        children[i].num_pb = 2;
++    }
++    children[0].instance_layer_offsets = {0, 1};
++    children[1].instance_layer_offsets = {0, 4};
++    REQUIRE(pb_type_max_layer_offset(root) == 4);
++    inner.pb_type_children = &grandchild;
++    inner.num_pb_type_children = 1;
++    grandchild.num_pb = 1;
++    grandchild.instance_layer_offsets = {3};
++    children[0].modes = &inner;
++    children[0].num_modes = 1;
++    REQUIRE(pb_type_max_layer_offset(root) == 4);
++    grandchild.instance_layer_offsets = {4};
++    REQUIRE(pb_type_max_layer_offset(root) == 5);
++    grandchild.instance_layer_offsets = {std::numeric_limits<int>::max()};
++    REQUIRE_THROWS_AS(pb_type_max_layer_offset(root), ArchFpgaError);
++    children[0].instance_layer_offsets = {0};
++    REQUIRE_THROWS_AS(pb_type_max_layer_offset(root), ArchFpgaError);
++}
++
++TEST_CASE("Physical span covers every equivalent logical site", "[layers]") {
++    t_physical_tile_type tile;
++    tile.name = const_cast<char*>("clb");
++    tile.width = tile.height = tile.capacity = 1;
++    tile.layer_span = 2;
++    tile.sub_tiles.resize(1);
++    tile.pin_layer_offset = {0, 0};
++    t_pb_type roots[2], child;
++    t_mode mode;
++    t_logical_block_type logical[2];
++    for (int i = 0; i < 2; ++i) {
++        logical[i].name = const_cast<char*>("logic");
++        logical[i].pb_type = &roots[i];
++        tile.sub_tiles[0].equivalent_sites.push_back(&logical[i]);
++    }
++    mode.pb_type_children = &child;
++    mode.num_pb_type_children = 1;
++    roots[1].modes = &mode;
++    roots[1].num_modes = 1;
++    child.num_pb = 1;
++    child.instance_layer_offsets = {1};
++    REQUIRE_NOTHROW(validate_tile_layer_span(tile));
++    child.instance_layer_offsets = {2};
++    REQUIRE_THROWS_AS(validate_tile_layer_span(tile), ArchFpgaError);
++    child.instance_layer_offsets = {1};
++    tile.pin_layer_offset = {2};
++    REQUIRE_THROWS_AS(validate_tile_layer_span(tile), ArchFpgaError);
++    tile.pin_layer_offset = {1};
++    REQUIRE_NOTHROW(validate_tile_layer_span(tile));
++    tile.pin_layer_offset = {2};
++    REQUIRE_THROWS_AS(validate_tile_layer_span(tile), ArchFpgaError);
++    tile.pin_layer_offset = {0};
++    tile.capacity = 2;
++    REQUIRE_THROWS_AS(validate_tile_layer_span(tile), ArchFpgaError);
++    tile.capacity = 1;
++    tile.layer_span = 1; // a second equivalent tile cannot silently be too short
++    REQUIRE_THROWS_AS(validate_tile_layer_span(tile), ArchFpgaError);
++}
++
++TEST_CASE("Pins sit on their own layer of a multi-layer tile", "[layers]") {
++    t_physical_tile_type tile;
++    tile.name = const_cast<char*>("clb");
++    tile.width = tile.height = tile.capacity = 1;
++    tile.layer_span = 2;
++    tile.sub_tiles.resize(1);
++    tile.num_pins = 2;
++    tile.pin_layer_offset = {0, 0};
++    tile.pin_physical_layer = {0, 1};
++    const int layers = 2;
++    SECTION("each pin reaches only its own layer") {
++        REQUIRE(is_pin_conencted_to_layer(&tile, 0, 0, 0, layers));
++        REQUIRE_FALSE(is_pin_conencted_to_layer(&tile, 0, 0, 1, layers));
++        REQUIRE(is_pin_conencted_to_layer(&tile, 1, 0, 1, layers));
++        REQUIRE_FALSE(is_pin_conencted_to_layer(&tile, 1, 0, 0, layers));
++    }
++    SECTION("layer_offset adds the adjacent layer to where the pin sits") {
++        tile.pin_layer_offset = {1, 1};
++        REQUIRE(is_pin_conencted_to_layer(&tile, 0, 0, 1, layers));
++        REQUIRE(is_pin_conencted_to_layer(&tile, 1, 0, 0, layers));
++        REQUIRE(is_pin_conencted_to_layer(&tile, 1, 0, 1, layers));
++    }
++    SECTION("a pin above the device connects to nothing") {
++        REQUIRE_FALSE(is_pin_conencted_to_layer(&tile, 1, 1, 1, layers));
++    }
++    SECTION("pins default to the anchor") {
++        tile.pin_physical_layer.clear();
++        REQUIRE(get_pin_physical_layer(&tile, 1) == 0);
++    }
++    SECTION("pin_layer must fit in the tile") {
++        REQUIRE_NOTHROW(validate_tile_layer_span(tile));
++        tile.pin_physical_layer = {0, 2};
++        REQUIRE_THROWS_AS(validate_tile_layer_span(tile), ArchFpgaError);
++        tile.pin_physical_layer = {-1, 0};
++        REQUIRE_THROWS_AS(validate_tile_layer_span(tile), ArchFpgaError);
++    }
++}
++
++TEST_CASE("Grid reserves upper cells without creating extra CLB capacity", "[layers]") {
++    t_physical_tile_type empty, clb, other;
++    clb.name = const_cast<char*>("clb");
++    clb.width = clb.height = clb.capacity = 1;
++    clb.layer_span = 2;
++    clb.sub_tiles.resize(1);
++    other.capacity = 1;
++    vtr::NdMatrix<t_grid_tile, 3> cells;
++    cells.resize({3, 2, 2});
++    for (int z = 0; z < 3; ++z)
++        for (int x = 0; x < 2; ++x)
++            for (int y = 0; y < 2; ++y) cells[z][x][y].type = &empty;
++    cells[1][0][0].type = &clb; // highest legal anchor
++    DeviceGrid legal("legal", cells);
++    REQUIRE(legal.num_instances(&clb, -1) == 1);
++    REQUIRE(legal.num_instances(&clb, 2) == 0);
++    REQUIRE(legal.get_layer_anchor_offset({0, 0, 2}) == 1);
++    REQUIRE(legal.get_physical_type({0, 0, 2})->capacity == 0);
++    REQUIRE(legal.get_footprint_type({0, 0, 2}) == &clb);
++    REQUIRE(legal.get_footprint_type({1, 1, 2}) == &empty);
++    cells[2][0][0].type = &other;
++    REQUIRE_THROWS_AS(DeviceGrid("overlap", cells), ArchFpgaError);
++    cells[2][0][0].type = &clb;
++    REQUIRE_THROWS_AS(DeviceGrid("overlapping anchors", cells), ArchFpgaError);
++    cells[1][0][0].type = &empty;
++    REQUIRE_THROWS_AS(DeviceGrid("past top", cells), ArchFpgaError);
++    cells[2][0][0].type = &empty;
++    cells[0][0][0].type = &clb;
++    cells[0][1][0].type = &clb;
++    REQUIRE(DeviceGrid("two anchors", cells).num_instances(&clb, -1) == 2);
++}
++
++TEST_CASE("Internal crossing delay reaches graph timing", "[layers]") {
++    t_pb_type root, child;
++    root.num_pb = child.num_pb = 1;
++    child.instance_layer_offsets = {1};
++    t_pb_graph_node r{}, c{};
++    r.pb_type = &root;
++    c.pb_type = &child;
++    c.parent_pb_graph_node = &r;
++    t_pb_graph_pin source{}, sink{};
++    source.parent_node = &r;
++    sink.parent_node = &c;
++    t_pb_graph_pin* inputs[] = {&source};
++    t_pb_graph_pin* outputs[] = {&sink};
++    t_interconnect interconnect;
++    interconnect.layer_crossing_delay = 4.e-11;
++    t_pb_graph_edge edge{};
++    edge.input_pins = inputs;
++    edge.output_pins = outputs;
++    edge.num_input_pins = edge.num_output_pins = 1;
++    edge.interconnect = &interconnect;
++    edge.delay_min = 1.e-10;
++    edge.delay_max = 2.e-10;
++    source.output_edges = {&edge, &edge}; // visit one edge only once
++    source.num_output_edges = 2;
++    int size = 1;
++    r.input_pins = inputs;
++    r.num_input_pins = &size;
++    r.num_input_ports = 1;
++    SECTION("one crossing updates min and max") {
++        apply_internal_layer_delays(r);
++        REQUIRE(edge.delay_min == Catch::Approx(1.4e-10));
++        REQUIRE(edge.delay_max == Catch::Approx(2.4e-10));
++    }
++    SECTION("a root pin on the child's layer does not cross") {
++        apply_internal_layer_delays(r, [](const t_pb_graph_pin&) { return 1; });
++        REQUIRE(edge.delay_max == Catch::Approx(2.e-10));
++    }
++    SECTION("a root pin above a child on the anchor crosses") {
++        child.instance_layer_offsets = {0};
++        apply_internal_layer_delays(r, [](const t_pb_graph_pin&) { return 1; });
++        REQUIRE(edge.delay_max == Catch::Approx(2.4e-10));
++    }
++    SECTION("same-layer edge unchanged") {
++        child.instance_layer_offsets = {0};
++        apply_internal_layer_delays(r);
++        REQUIRE(edge.delay_max == Catch::Approx(2.e-10));
++    }
++    SECTION("omitted parameter unchanged") {
++        interconnect.layer_crossing_delay = 0.;
++        apply_internal_layer_delays(r);
++        REQUIRE(edge.delay_max == Catch::Approx(2.e-10));
++    }
++    SECTION("multiple layers scale the delay") {
++        child.instance_layer_offsets = {3};
++        apply_internal_layer_delays(r);
++        REQUIRE(edge.delay_max == Catch::Approx(3.2e-10));
++    }
++    SECTION("overflow is rejected") {
++        interconnect.layer_crossing_delay = std::numeric_limits<double>::max();
++        REQUIRE_THROWS_AS(apply_internal_layer_delays(r), ArchFpgaError);
++    }
++}
+diff --git a/libs/librrgraph/src/base/check_rr_graph.cpp b/libs/librrgraph/src/base/check_rr_graph.cpp
+index a9b963869..e781881fd 100644
+--- a/libs/librrgraph/src/base/check_rr_graph.cpp
++++ b/libs/librrgraph/src/base/check_rr_graph.cpp
+@@ -238,7 +238,7 @@ void check_rr_graph(const RRGraphView& rr_graph,
+         int xlow = rr_graph.node_xlow(rr_node);
+         int ylow = rr_graph.node_ylow(rr_node);
+ 
+-        t_physical_tile_type_ptr type = grid.get_physical_type({xlow, ylow, layer_num});
++        t_physical_tile_type_ptr type = grid.get_footprint_type({xlow, ylow, layer_num});
+ 
+         if (rr_type == IPIN || rr_type == OPIN) {
+             // #TODO: No edges are added for internal pins. However, they need to be checked somehow!
+@@ -275,7 +275,7 @@ void check_rr_graph(const RRGraphView& rr_graph,
+                 if (!is_chain && !is_fringe && !is_wire) {
+                     if (rr_graph.node_type(rr_node) == IPIN || rr_graph.node_type(rr_node) == OPIN) {
+                         if (has_adjacent_channel(rr_graph, grid, node)) {
+-                            auto block_type = grid.get_physical_type({rr_graph.node_xlow(rr_node),
++                            auto block_type = grid.get_footprint_type({rr_graph.node_xlow(rr_node),
+                                                                       rr_graph.node_ylow(rr_node),
+                                                                       rr_graph.node_layer(rr_node)});
+                             std::string pin_name = block_type_pin_index_to_name(block_type, rr_graph.node_pin_num(rr_node), is_flat);
+@@ -316,9 +316,9 @@ static bool rr_node_is_global_clb_ipin(const RRGraphView& rr_graph, const Device
+     int ipin;
+     t_physical_tile_type_ptr type;
+ 
+-    type = grid.get_physical_type({rr_graph.node_xlow(inode),
+-                                   rr_graph.node_ylow(inode),
+-                                   rr_graph.node_layer(inode)});
++    type = grid.get_footprint_type({rr_graph.node_xlow(inode),
++                                    rr_graph.node_ylow(inode),
++                                    rr_graph.node_layer(inode)});
+ 
+     if (rr_graph.node_type(inode) != IPIN)
+         return (false);
+@@ -386,7 +386,7 @@ void check_rr_node(const RRGraphView& rr_graph,
+     }
+ 
+     /* Check that the segment is within the array and such. */
+-    type = grid.get_physical_type({xlow, ylow, layer_num});
++    type = grid.get_footprint_type({xlow, ylow, layer_num});
+ 
+     switch (rr_type) {
+         case SOURCE:
+diff --git a/libs/librrgraph/src/base/rr_graph_storage.cpp b/libs/librrgraph/src/base/rr_graph_storage.cpp
+index b71cfde41..b6460358c 100644
+--- a/libs/librrgraph/src/base/rr_graph_storage.cpp
++++ b/libs/librrgraph/src/base/rr_graph_storage.cpp
+@@ -454,7 +454,7 @@ size_t t_rr_graph_storage::count_rr_switches(
+         for (auto edge_switch : vtr::Range<decltype(edge_switch_)::const_iterator>(
+                  edge_switch_.begin() + first_edge_offset,
+                  edge_switch_.begin() + last_edge_offset)) {
+-            if (edge_switch < arch_switch_counts.size()) {
++            if ((size_t)edge_switch < arch_switch_counts.size()) {
+                 arch_switch_counts[edge_switch] += 1;
+             } else {
+                 // Handle the error case, e.g., log an error or throw an exception
+@@ -515,7 +515,7 @@ void t_rr_graph_storage::remap_rr_node_switch_indices(const t_arch_switch_fanin&
+         }
+ 
+         int switch_index = edge_switch_[edge];
+-        if (switch_index >= switch_fanin.size()) {
++        if ((size_t)switch_index >= switch_fanin.size()) {
+             VTR_LOG_ERROR("switch_index out of bounds: %d\n", switch_index);
+             continue;
+         }
+diff --git a/libs/librrgraph/src/utils/describe_rr_node.cpp b/libs/librrgraph/src/utils/describe_rr_node.cpp
+index 6383e3489..e91f6b2e3 100644
+--- a/libs/librrgraph/src/utils/describe_rr_node.cpp
++++ b/libs/librrgraph/src/utils/describe_rr_node.cpp
+@@ -27,7 +27,7 @@ std::string describe_rr_node(const RRGraphView& rr_graph,
+                                    seg_index);
+         }
+     } else if (rr_graph.node_type(inode) == IPIN || rr_graph.node_type(inode) == OPIN) {
+-        auto type = grid.get_physical_type({rr_graph.node_xlow(inode),
++        auto type = grid.get_footprint_type({rr_graph.node_xlow(inode),
+                                             rr_graph.node_ylow(inode),
+                                             rr_graph.node_layer(inode)});
+ 
+diff --git a/utils/route_diag/CMakeLists.txt b/utils/route_diag/CMakeLists.txt
+index c3ad2eee5..809785c93 100644
+--- a/utils/route_diag/CMakeLists.txt
++++ b/utils/route_diag/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ cmake_minimum_required(VERSION 3.16)
+-cmake_policy(VERSION 3.9)
++cmake_policy(VERSION 3.10)
+ 
+ project("route_diag")
+ 
+diff --git a/vpr/src/base/SetupGrid.cpp b/vpr/src/base/SetupGrid.cpp
+index 08e235678..b9fedb61a 100644
+--- a/vpr/src/base/SetupGrid.cpp
++++ b/vpr/src/base/SetupGrid.cpp
+@@ -763,7 +763,10 @@ float calculate_device_utilization(const DeviceGrid& grid, const std::map<t_logi
+             for (int y = 0; y < (int)grid.height(); ++y) {
+                 int width_offset = grid.get_width_offset({x, y, layer_num});
+                 int height_offset = grid.get_height_offset({x, y, layer_num});
+-                if (width_offset == 0 && height_offset == 0) {
++                // The anchor contributes its full layer_span below. Reserved
++                // upper cells must not also contribute as ordinary EMPTY tiles.
++                if (width_offset == 0 && height_offset == 0
++                    && grid.get_layer_anchor_offset({x, y, layer_num}) == 0) {
+                     const auto& type = grid.get_physical_type({x, y, layer_num});
+                     ++grid_resources[type];
+                 }
+@@ -777,7 +780,7 @@ float calculate_device_utilization(const DeviceGrid& grid, const std::map<t_logi
+         t_physical_tile_type_ptr type = kv.first;
+         size_t count = kv.second;
+ 
+-        float type_area = type->width * type->height;
++        float type_area = float(type->width) * type->height * type->layer_span;
+ 
+         grid_area += type_area * count;
+     }
+@@ -793,7 +796,7 @@ float calculate_device_utilization(const DeviceGrid& grid, const std::map<t_logi
+ 
+         size_t count = kv.second;
+ 
+-        float type_area = type->width * type->height;
++        float type_area = float(type->width) * type->height * type->layer_span;
+ 
+         //Instances of multi-capaicty blocks take up less space
+         if (type->capacity != 0) {
+diff --git a/vpr/src/base/SetupVPR.cpp b/vpr/src/base/SetupVPR.cpp
+index 52cc7b248..d2a5124f1 100644
+--- a/vpr/src/base/SetupVPR.cpp
++++ b/vpr/src/base/SetupVPR.cpp
+@@ -15,6 +15,7 @@
+ #include "read_fpga_interchange_arch.h"
+ #include "SetupVPR.h"
+ #include "pb_type_graph.h"
++#include "pb_type_layers.h"
+ #include "pack_types.h"
+ #include "lb_type_rr_graph.h"
+ #include "echo_arch.h"
+@@ -317,6 +318,12 @@ void SetupVPR(const t_options* options,
+ 
+     {
+         vtr::ScopedStartFinishTimer t("Building complex block graph");
++        for (const auto& tile : g_vpr_ctx.device().physical_tile_types) {
++            validate_tile_layer_span(tile);
++            if (tile.layer_span > 1 && (routerOpts->flat_routing || options->do_analytical_placement || powerOpts->do_power)) {
++                VPR_THROW(VPR_ERROR_ARCH, "Multi-layer CLBs currently support clustered routing, conventional placement, and no power analysis only");
++            }
++        }
+         alloc_and_load_all_pb_graphs(powerOpts->do_power, routerOpts->flat_routing);
+         *packerRRGraphs = alloc_and_load_all_lb_type_rr_graph();
+     }
+diff --git a/vpr/src/base/blk_loc_registry.cpp b/vpr/src/base/blk_loc_registry.cpp
+index 70f809cdc..5cbd7b7f3 100644
+--- a/vpr/src/base/blk_loc_registry.cpp
++++ b/vpr/src/base/blk_loc_registry.cpp
+@@ -60,7 +60,8 @@ void BlkLocRegistry::set_block_location(ClusterBlockId blk_id, const t_pl_loc& l
+ 
+     // Check if block location is out of range of grid dimensions
+     if (location.x < 0 || location.x > int(device_ctx.grid.width() - 1)
+-        || location.y < 0 || location.y > int(device_ctx.grid.height() - 1)) {
++        || location.y < 0 || location.y > int(device_ctx.grid.height() - 1)
++        || location.layer < 0 || location.layer >= device_ctx.grid.get_num_layers()) {
+         VPR_THROW(VPR_ERROR_PLACE, "Block %s with ID %d is out of range at location (%d, %d). \n",
+                   block_name.c_str(), blk_id, location.x, location.y);
+     }
+@@ -86,6 +87,11 @@ void BlkLocRegistry::set_block_location(ClusterBlockId blk_id, const t_pl_loc& l
+     }
+ 
+     // Mark the grid location and usage of the block
++    auto occupant = grid_blocks_.block_at_location(location);
++    if (occupant != ClusterBlockId::INVALID() && occupant != blk_id) {
++        VPR_THROW(VPR_ERROR_PLACE, "Attempt to place block %s at an occupied anchor (%d,%d,%d)",
++                  block_name.c_str(), location.x, location.y, location.layer);
++    }
+     grid_blocks_.set_block_at_location(location, blk_id);
+     grid_blocks_.increment_usage({location.x, location.y, location.layer});
+ 
+diff --git a/vpr/src/base/hyper_graph.h b/vpr/src/base/hyper_graph.h
+index a0d4fd9a3..9f24b5a52 100644
+--- a/vpr/src/base/hyper_graph.h
++++ b/vpr/src/base/hyper_graph.h
+@@ -74,7 +74,7 @@ class VprHypergraph {
+      * Returns a vector containing the size of each hyperedge (number of vertices in each hyperedge)
+      * The size of the vector is num_hyperedges_
+      */
+-    std::vector<int> get_edge_weights(float alpha, vtr::vector<AtomBlockId, float>& atom_criticality = nullptr, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr) const;
++    std::vector<int> get_edge_weights(float alpha, vtr::vector<AtomBlockId, float>& atom_criticality, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup) const;
+ 
+     /**
+      * @brief Get the vertex weights
+@@ -82,7 +82,7 @@ class VprHypergraph {
+      * Returns a vector containing the number of hyperedges each vertex is part of
+      * The size of the vector is num_vertices_
+      */
+-    std::vector<int> get_vertices_weights(float beta, vtr::vector<AtomBlockId, float>& atom_criticality = nullptr, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr, bool timing = false) const;
++    std::vector<int> get_vertices_weights(float beta, vtr::vector<AtomBlockId, float>& atom_criticality, vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup, bool timing = false) const;
+     
+     /**
+      * @brief Get the hyperedges array
+diff --git a/vpr/src/base/layer_report.cpp b/vpr/src/base/layer_report.cpp
+new file mode 100644
+index 000000000..ead755b65
+--- /dev/null
++++ b/vpr/src/base/layer_report.cpp
+@@ -0,0 +1,77 @@
++#include "layer_report.h"
++
++#include <fstream>
++#include <memory>
++#include <string>
++#include "globals.h"
++#include "pb_type_layers.h"
++#include "vpr_utils.h"
++#include "vtr_log.h"
++#include "vtr_util.h"
++
++void write_internal_layer_report() {
++    const auto& device = g_vpr_ctx.device();
++    bool spanning = false;
++    for (const auto& tile : device.physical_tile_types) spanning |= tile.layer_span > 1;
++    if (!spanning) return;
++
++    const auto& atoms = g_vpr_ctx.atom();
++    const auto& clusters = g_vpr_ctx.clustering().clb_nlist;
++    const auto& placement = g_vpr_ctx.placement();
++    std::string filename = vtr::out_file_prefix + "internal_layers.tsv";
++    std::ofstream out(filename);
++    if (!out) VPR_THROW(VPR_ERROR_OTHER, "Cannot write %s", filename.c_str());
++    out.precision(12);
++    out << "# atom: name cluster relative_layer absolute_layer\n"
++        << "# footprint: cluster x y layer anchor_layer\n"
++        << "# edge: cluster net source_pin sink_pin source_layer sink_layer max_delay_seconds\n";
++    for (auto atom : atoms.nlist.blocks()) {
++        auto clb = atoms.lookup.atom_clb(atom);
++        const auto& loc = placement.block_locs()[clb].loc;
++        auto tile = device.grid.get_physical_type({loc.x, loc.y, loc.layer});
++        if (tile->layer_span == 1) continue;
++        auto pb = atoms.lookup.atom_pb(atom);
++        int offset = pb_graph_node_layer_offset(*pb->pb_graph_node);
++        if (offset >= tile->layer_span) VPR_THROW(VPR_ERROR_PLACE, "Occupied atom exceeds physical layer span");
++        out << "atom\t" << atoms.nlist.block_name(atom) << '\t' << clusters.block_name(clb)
++            << '\t' << offset << '\t' << loc.layer + offset << '\n';
++    }
++    for (auto clb : clusters.blocks()) {
++        const auto& loc = placement.block_locs()[clb].loc;
++        auto tile = device.grid.get_physical_type({loc.x, loc.y, loc.layer});
++        if (tile->layer_span == 1) continue;
++        for (int dz = 0; dz < tile->layer_span; ++dz) {
++            if (device.grid.get_layer_anchor_offset({loc.x, loc.y, loc.layer + dz}) != dz) {
++                VPR_THROW(VPR_ERROR_PLACE, "Occupied CLB has an invalid layer reservation");
++            }
++            out << "footprint\t" << clusters.block_name(clb) << '\t' << loc.x << '\t' << loc.y
++                << '\t' << loc.layer + dz << '\t' << loc.layer << '\n';
++        }
++        auto type = clusters.block_type(clb);
++        std::unique_ptr<t_pb_graph_pin*[]> pins(alloc_and_load_pb_graph_pin_lookup_from_index(type));
++        const auto& route = clusters.block_pb(clb)->pb_route;
++        for (const auto& entry : route) {
++            int sink_id = entry.first;
++            int source_id = entry.second.driver_pb_pin_id;
++            if (source_id == OPEN || !entry.second.atom_net_id) continue;
++            auto source = pins[source_id];
++            auto sink = pins[sink_id];
++            int from = pb_graph_node_layer_offset(*source->parent_node);
++            int to = pb_graph_node_layer_offset(*sink->parent_node);
++            if (from == to) continue;
++            const t_pb_graph_edge* used_edge = nullptr;
++            for (int e = 0; e < source->num_output_edges; ++e) {
++                auto edge = source->output_edges[e];
++                for (int p = 0; p < edge->num_output_pins; ++p) {
++                    if (edge->output_pins[p] == sink) used_edge = edge;
++                }
++            }
++            if (!used_edge) VPR_THROW(VPR_ERROR_ROUTE, "Used cross-layer connection has no architecture graph edge");
++            out << "edge\t" << clusters.block_name(clb) << '\t' << atoms.nlist.net_name(entry.second.atom_net_id)
++                << '\t' << source_id << '\t' << sink_id << '\t' << loc.layer + from
++                << '\t' << loc.layer + to << '\t' << used_edge->delay_max << '\n';
++        }
++    }
++    if (!out) VPR_THROW(VPR_ERROR_OTHER, "Failed writing %s", filename.c_str());
++    VTR_LOG("Wrote occupied internal layer and cross-layer routing audit: %s\n", filename.c_str());
++}
+diff --git a/vpr/src/base/layer_report.h b/vpr/src/base/layer_report.h
+new file mode 100644
+index 000000000..8803da723
+--- /dev/null
++++ b/vpr/src/base/layer_report.h
+@@ -0,0 +1,5 @@
++#ifndef VPR_LAYER_REPORT_H
++#define VPR_LAYER_REPORT_H
++// Audit occupied internal sites and used cross-layer intra-CLB routing edges.
++void write_internal_layer_report();
++#endif
+diff --git a/vpr/src/base/netlist_writer.cpp b/vpr/src/base/netlist_writer.cpp
+index 60036425b..5dd05db4b 100644
+--- a/vpr/src/base/netlist_writer.cpp
++++ b/vpr/src/base/netlist_writer.cpp
+@@ -1,6 +1,7 @@
+ #include <fstream>
+ #include <iostream>
+ #include <sstream>
++#include "pb_type_layers.h"
+ #include <set>
+ #include <map>
+ #include <vector>
+@@ -208,14 +209,18 @@ class LutInst : public Instance {
+             std::string inst_name,                                      ///<The name of this instance
+             std::map<std::string, std::vector<std::string>> port_conns, ///<The port connections of this instance. Key: port name, Value: connected nets
+             std::vector<Arc> timing_arc_values,                         ///<The timing arcs of this instance
+-            struct t_analysis_opts opts)
++            struct t_analysis_opts opts,
++            int relative_layer = -1,
++            int absolute_layer = -1)
+         : type_("LUT_K")
+         , lut_size_(lut_size)
+         , lut_mask_(lut_mask)
+         , inst_name_(inst_name)
+         , port_conns_(port_conns)
+         , timing_arcs_(timing_arc_values)
+-        , opts_(opts) {
++        , opts_(opts)
++        , relative_layer_(relative_layer)
++        , absolute_layer_(absolute_layer) {
+     }
+ 
+     //Accessors
+@@ -226,6 +231,10 @@ class LutInst : public Instance {
+   public: //Instance interface method implementations
+     void print_verilog(std::ostream& os, size_t& unconn_count, int depth) override {
+         //Instantiate the lut
++        if (relative_layer_ >= 0) {
++            os << indent(depth) << "(* vtr_relative_layer = " << relative_layer_
++               << ", vtr_absolute_layer = " << absolute_layer_ << " *)\n";
++        }
+         os << indent(depth) << type_ << " #(\n";
+ 
+         os << indent(depth + 1) << ".K(" << lut_size_ << "),\n";
+@@ -386,6 +395,8 @@ class LutInst : public Instance {
+     std::map<std::string, std::vector<std::string>> port_conns_;
+     std::vector<Arc> timing_arcs_;
+     struct t_analysis_opts opts_;
++    int relative_layer_;
++    int absolute_layer_;
+ };
+ 
+ class LatchInst : public Instance {
+@@ -1262,7 +1273,13 @@ class NetlistWriterVisitor : public NetlistVisitor {
+             port_conns["out"].push_back(net);
+         }
+ 
+-        auto inst = std::make_shared<LutInst>(lut_size, lut_mask, inst_name, port_conns, timing_arcs, opts_);
++        const auto& atom_ctx = g_vpr_ctx.atom();
++        auto clb = atom_ctx.lookup.atom_clb(atom_ctx.lookup.pb_atom(atom));
++        const auto& loc = g_vpr_ctx.placement().block_locs()[clb].loc;
++        auto tile = g_vpr_ctx.device().grid.get_physical_type({loc.x, loc.y, loc.layer});
++        int relative_layer = tile->layer_span > 1 ? pb_graph_node_layer_offset(*atom->pb_graph_node) : -1;
++        auto inst = std::make_shared<LutInst>(lut_size, lut_mask, inst_name, port_conns, timing_arcs, opts_,
++                                             relative_layer, relative_layer < 0 ? -1 : loc.layer + relative_layer);
+ 
+         return inst;
+     }
+diff --git a/vpr/src/base/partitioning_engine.cpp b/vpr/src/base/partitioning_engine.cpp
+index 06eacdc18..bf6526a2b 100644
+--- a/vpr/src/base/partitioning_engine.cpp
++++ b/vpr/src/base/partitioning_engine.cpp
+@@ -2,6 +2,7 @@
+ #include "vtr_log.h"
+ #include "vtr_assert.h"
+ #include <fstream>
++#include <sstream>
+ #include <algorithm>
+ #include <map>
+ #include <chrono>
+diff --git a/vpr/src/base/partitioning_engine.h b/vpr/src/base/partitioning_engine.h
+index 5c944bca2..025abaeb0 100644
+--- a/vpr/src/base/partitioning_engine.h
++++ b/vpr/src/base/partitioning_engine.h
+@@ -43,7 +43,7 @@ class PartitioningEngine {
+      * @brief Run the partitioning algorithm
+      * @return true if successful
+      */
+-    bool partition(vtr::vector<AtomBlockId, float>& atom_criticality = nullptr,vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup = nullptr);
++    bool partition(vtr::vector<AtomBlockId, float>& atom_criticality,vtr::vector<ClusterBlockId, std::unordered_set<AtomBlockId>>& atoms_lookup);
+ 
+     /**
+      * @brief Run partitioning using Triton script
+diff --git a/vpr/src/base/read_route.cpp b/vpr/src/base/read_route.cpp
+index d2d3bc14d..6e99006db 100644
+--- a/vpr/src/base/read_route.cpp
++++ b/vpr/src/base/read_route.cpp
+@@ -306,7 +306,7 @@ static void process_nodes(const Netlist<>& net_list, std::ifstream& fp, ClusterN
+ 
+             /* Verify types and ptc*/
+             if (tokens[2] == "SOURCE" || tokens[2] == "SINK" || tokens[2] == "OPIN" || tokens[2] == "IPIN") {
+-                const auto& type = device_ctx.grid.get_physical_type({x, y, layer_num});
++                const auto& type = device_ctx.grid.get_footprint_type({x, y, layer_num});
+                 if (tokens[4 + offset] == "Pad:" && !is_io_type(type)) {
+                     vpr_throw(VPR_ERROR_ROUTE, filename, lineno,
+                               "Node %d is of the wrong type", inode);
+@@ -329,16 +329,16 @@ static void process_nodes(const Netlist<>& net_list, std::ifstream& fp, ClusterN
+             /*Process switches and pb pin info if it is ipin or opin type*/
+             if (tokens[6 + offset] != "Switch:") {
+                 /*This is an opin or ipin, process its pin nums*/
+-                auto type = device_ctx.grid.get_physical_type({x, y, layer_num});
++                auto type = device_ctx.grid.get_footprint_type({x, y, layer_num});
+                 if (!is_io_type(type) && (tokens[2] == "IPIN" || tokens[2] == "OPIN")) {
+                     int pin_num = rr_graph.node_pin_num(RRNodeId(inode));
+                     int width_offset = device_ctx.grid.get_width_offset({x, y, layer_num});
+                     int height_offset = device_ctx.grid.get_height_offset({x, y, layer_num});
+-                    auto physical_tile = device_ctx.grid.get_physical_type({x, y, layer_num});
++                    auto physical_tile = device_ctx.grid.get_footprint_type({x, y, layer_num});
+                     auto [sub_tile, sub_tile_rel_cap] = get_sub_tile_from_pin_physical_num(physical_tile, pin_num);
+                     int sub_tile_offset = sub_tile->capacity.low + sub_tile_rel_cap;
+ 
+-                    ClusterBlockId iblock = grid_blocks.block_at_location({x - width_offset, y - height_offset, sub_tile_offset, layer_num});
++                    ClusterBlockId iblock = grid_blocks.block_at_location({x - width_offset, y - height_offset, sub_tile_offset, layer_num - device_ctx.grid.get_layer_anchor_offset({x, y, layer_num})});
+                     VTR_ASSERT(iblock);
+ 
+                     const t_pb_graph_pin* pb_pin;
+@@ -606,7 +606,7 @@ void print_route(const Netlist<>& net_list,
+                     switch (rr_type) {
+                         case IPIN:
+                         case OPIN:
+-                            if (is_io_type(device_ctx.grid.get_physical_type({ilow, jlow, layer_num}))) {
++                            if (is_io_type(device_ctx.grid.get_footprint_type({ilow, jlow, layer_num}))) {
+                                 fprintf(fp, " Pad: ");
+                             } else { /* IO Pad. */
+                                 fprintf(fp, " Pin: ");
+@@ -620,7 +620,7 @@ void print_route(const Netlist<>& net_list,
+ 
+                         case SOURCE:
+                         case SINK:
+-                            if (is_io_type(device_ctx.grid.get_physical_type({ilow, jlow, layer_num}))) {
++                            if (is_io_type(device_ctx.grid.get_footprint_type({ilow, jlow, layer_num}))) {
+                                 fprintf(fp, " Pad: ");
+                             } else { /* IO Pad. */
+                                 fprintf(fp, " Class: ");
+@@ -636,7 +636,7 @@ void print_route(const Netlist<>& net_list,
+ 
+                     fprintf(fp, "%d  ", rr_graph.node_ptc_num(inode));
+ 
+-                    auto physical_tile = device_ctx.grid.get_physical_type({ilow, jlow, layer_num});
++                    auto physical_tile = device_ctx.grid.get_footprint_type({ilow, jlow, layer_num});
+                     if (!is_io_type(physical_tile) && (rr_type == IPIN || rr_type == OPIN)) {
+                         int pin_num = rr_graph.node_pin_num(inode);
+                         int xoffset = device_ctx.grid.get_width_offset({ilow, jlow, layer_num});
+@@ -645,7 +645,7 @@ void print_route(const Netlist<>& net_list,
+                         int sub_tile_offset = sub_tile->capacity.low + sub_tile_rel_cap;
+ 
+                         ClusterBlockId iblock = grid_blocks.block_at_location({ilow - xoffset, jlow - yoffset,
+-                                                                               sub_tile_offset, layer_num});
++                                                                               sub_tile_offset, layer_num - device_ctx.grid.get_layer_anchor_offset({ilow, jlow, layer_num})});
+                         VTR_ASSERT(iblock);
+                         const t_pb_graph_pin* pb_pin;
+                         if (is_pin_on_tile(physical_tile, pin_num)) {
+diff --git a/vpr/src/base/vpr_api.cpp b/vpr/src/base/vpr_api.cpp
+index de571de3e..6d74b5106 100644
+--- a/vpr/src/base/vpr_api.cpp
++++ b/vpr/src/base/vpr_api.cpp
+@@ -85,6 +85,7 @@
+ #include "read_place.h"
+ 
+ #include "arch_util.h"
++#include "layer_report.h"
+ 
+ #include "post_routing_pb_pin_fixup.h"
+ #include "sync_netlists_to_routing_flat.h"
+@@ -498,6 +499,9 @@ bool vpr_flow(t_vpr_setup& vpr_setup, t_arch& arch) {
+     }
+ 
+     //close the graphics
++    if (route_status.success() && vpr_setup.RouterOpts.doRouting != STAGE_SKIP) {
++        write_internal_layer_report();
++    }
+     vpr_close_graphics(vpr_setup);
+ 
+     return route_status.success();
+diff --git a/vpr/src/base/vpr_types.cpp b/vpr/src/base/vpr_types.cpp
+index c4a381d59..ba22ba016 100644
+--- a/vpr/src/base/vpr_types.cpp
++++ b/vpr/src/base/vpr_types.cpp
+@@ -1,4 +1,5 @@
+ #include <cmath>
++#include <sstream>
+ #include "vpr_types.h"
+ #include "globals.h"
+ 
+@@ -451,4 +452,3 @@ BitIndex t_pb::atom_pin_bit_index(const t_pb_graph_pin* gpin) const {
+ void t_pb::set_atom_pin_bit_index(const t_pb_graph_pin* gpin, BitIndex atom_pin_bit_idx) {
+     pin_rotations_[gpin] = atom_pin_bit_idx;
+ }
+-
+diff --git a/vpr/src/pack/pb_type_graph.cpp b/vpr/src/pack/pb_type_graph.cpp
+index 0c6745b85..70dc55706 100644
+--- a/vpr/src/pack/pb_type_graph.cpp
++++ b/vpr/src/pack/pb_type_graph.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "arch_types.h"
+ #include "physical_types.h"
++#include "pb_type_layers.h"
+ #include "globals.h"
+ #include "vpr_utils.h"
+ #include "pb_type_graph.h"
+@@ -184,6 +185,10 @@ void alloc_and_load_all_pb_graphs(bool load_power_structures, bool is_flat) {
+     for (auto& type : device_ctx.logical_block_types) {
+         if (type.pb_type) {
+             load_pb_graph_pin_to_pin_annotations(type.pb_graph_head);
++            t_physical_tile_type_ptr tile = pick_physical_type(&type);
++            apply_internal_layer_delays(*type.pb_graph_head, [&](const t_pb_graph_pin& pin) {
++                return get_pin_physical_layer(tile, get_physical_pin(tile, &type, pin.pin_count_in_cluster));
++            });
+         }
+     }
+ }
+@@ -243,6 +248,9 @@ static void alloc_and_load_pb_graph(t_pb_graph_node* pb_graph_node,
+     pb_graph_node->placement_index = index;
+     pb_graph_node->pb_type = pb_type;
+     pb_graph_node->parent_pb_graph_node = parent_pb_graph_node;
++    // Validate the concrete site's ancestry, including accumulated overflow.
++    // Absolute placed layers must never be stored in this shared graph.
++    pb_graph_node_layer_offset(*pb_graph_node);
+ 
+     pb_graph_node->num_input_ports = 0;
+     pb_graph_node->num_output_ports = 0;
+@@ -1611,6 +1619,8 @@ static void echo_pb_rec(const t_pb_graph_node* pb_graph_node, const int level, F
+     fprintf(fp, "Physical Block: type \"%s\"  index %d  num_children %d\n",
+             pb_graph_node->pb_type->name, pb_graph_node->placement_index,
+             pb_graph_node->pb_type->num_pb);
++    print_tabs(fp, level);
++    fprintf(fp, "Root-relative layer offset: %d\n", pb_graph_node_layer_offset(*pb_graph_node));
+ 
+     if (pb_graph_node->parent_pb_graph_node) {
+         print_tabs(fp, level + 1);
+diff --git a/vpr/src/pack/post_routing_pb_pin_fixup.cpp b/vpr/src/pack/post_routing_pb_pin_fixup.cpp
+index 78084d56d..612c4188c 100644
+--- a/vpr/src/pack/post_routing_pb_pin_fixup.cpp
++++ b/vpr/src/pack/post_routing_pb_pin_fixup.cpp
+@@ -156,7 +156,7 @@ static void update_cluster_pin_with_post_routing_results(const Netlist<>& net_li
+         short valid_routing_net_cnt = 0;
+         for (const e_side& pin_side : pin_sides) {
+             /* Find the net mapped to this pin in routing results */
+-            RRNodeId rr_node = node_lookup.find_node(coord_layer, coord_x, coord_y, rr_node_type, physical_pin, pin_side);
++            RRNodeId rr_node = node_lookup.find_node(coord_layer + get_pin_physical_layer(physical_tile, physical_pin), coord_x, coord_y, rr_node_type, physical_pin, pin_side);
+ 
+             /* Bypass invalid nodes, after that we must have a valid rr_node id */
+             if (!rr_node) {
+diff --git a/vpr/src/place/compressed_grid.h b/vpr/src/place/compressed_grid.h
+index 5620133b7..f922f3068 100644
+--- a/vpr/src/place/compressed_grid.h
++++ b/vpr/src/place/compressed_grid.h
+@@ -127,6 +127,7 @@ struct t_compressed_block_grid {
+      */
+     inline t_physical_tile_loc grid_loc_to_compressed_loc_approx(t_physical_tile_loc grid_loc) const {
+         auto find_closest_compressed_point = [](int loc, const std::vector<int>& compressed_grid_dim) -> int {
++            if (compressed_grid_dim.empty()) return OPEN;
+             auto itr = std::lower_bound(compressed_grid_dim.begin(), compressed_grid_dim.end(), loc);
+             int cx;
+             if (itr < compressed_grid_dim.end() - 1) {
+diff --git a/vpr/src/place/initial_placement.cpp b/vpr/src/place/initial_placement.cpp
+index dd24df169..1b422e509 100644
+--- a/vpr/src/place/initial_placement.cpp
++++ b/vpr/src/place/initial_placement.cpp
+@@ -623,6 +623,7 @@ static std::vector<t_grid_empty_locs_block_type> init_blk_types_empty_locations(
+     for (int layer_num = 0; layer_num < num_layers; layer_num++) {
+         int min_cx = compressed_block_grid.grid_loc_to_compressed_loc_approx({0, OPEN, layer_num}).x;
+         int max_cx = compressed_block_grid.grid_loc_to_compressed_loc_approx({(int)grid.width() - 1, OPEN, layer_num}).x;
++        if (min_cx == OPEN) continue;
+ 
+         //traverse all column and store their empty locations in block_type_empty_locs
+         for (int x_loc = min_cx; x_loc <= max_cx; x_loc++) {
+@@ -690,7 +691,13 @@ bool try_place_macro_randomly(const t_pl_macro& pl_macro,
+     const vtr::Rect<int>& reg_rect = reg.get_rect();
+     const auto [layer_low, layer_high] = reg.get_layer_range();
+ 
+-    int selected_layer = (layer_low == layer_high) ? layer_low : layer_low + rng.irand(layer_high - layer_low);
++    std::vector<int> candidate_layers;
++    for (int layer : compressed_block_grid.compressed_to_grid_layer) {
++        if (layer >= layer_low && layer <= layer_high) candidate_layers.push_back(layer);
++    }
++    if (candidate_layers.empty()) return false;
++    int selected_layer = candidate_layers.size() == 1 ? candidate_layers.front()
++                         : candidate_layers[rng.irand(candidate_layers.size() - 1)];
+ 
+     auto min_compressed_loc = compressed_block_grid.grid_loc_to_compressed_loc_approx({reg_rect.xmin(), reg_rect.ymin(), selected_layer});
+ 
+diff --git a/vpr/src/route/check_route.cpp b/vpr/src/route/check_route.cpp
+index fd239d39b..24084ac0e 100644
+--- a/vpr/src/route/check_route.cpp
++++ b/vpr/src/route/check_route.cpp
+@@ -323,8 +323,8 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
+                 && from_ylow <= to_ylow
+                 && from_xhigh >= to_xhigh
+                 && from_yhigh >= to_yhigh) {
+-                from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
+-                to_grid_type = device_ctx.grid.get_physical_type({to_xlow, to_ylow, to_layer});
++                from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
++                to_grid_type = device_ctx.grid.get_footprint_type({to_xlow, to_ylow, to_layer});
+                 VTR_ASSERT(from_grid_type == to_grid_type);
+ 
+                 iclass = get_class_num_from_pin_physical_num(to_grid_type, to_ptc);
+@@ -338,7 +338,7 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
+             break;
+ 
+         case OPIN:
+-            from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
++            from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
+             if (to_type == CHANX || to_type == CHANY) {
+                 num_adj += 1; //adjacent
+             } else if (is_flat) {
+@@ -352,7 +352,7 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
+             break;
+ 
+         case IPIN:
+-            from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
++            from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
+             if (is_flat) {
+                 VTR_ASSERT(to_type == OPIN || to_type == IPIN || to_type == SINK);
+             } else {
+@@ -365,16 +365,16 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
+                     && from_ylow >= to_ylow
+                     && from_xhigh <= to_xhigh
+                     && from_yhigh <= to_yhigh) {
+-                    from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
+-                    to_grid_type = device_ctx.grid.get_physical_type({to_xlow, to_ylow, to_layer});
++                    from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
++                    to_grid_type = device_ctx.grid.get_footprint_type({to_xlow, to_ylow, to_layer});
+                     VTR_ASSERT(from_grid_type == to_grid_type);
+                     iclass = get_class_num_from_pin_physical_num(from_grid_type, from_ptc);
+                     if (iclass == to_ptc)
+                         num_adj++;
+                 }
+             } else {
+-                from_grid_type = device_ctx.grid.get_physical_type({from_xlow, from_ylow, from_layer});
+-                to_grid_type = device_ctx.grid.get_physical_type({to_xlow, to_ylow, to_layer});
++                from_grid_type = device_ctx.grid.get_footprint_type({from_xlow, from_ylow, from_layer});
++                to_grid_type = device_ctx.grid.get_footprint_type({to_xlow, to_ylow, to_layer});
+                 VTR_ASSERT(from_grid_type == to_grid_type);
+                 int from_root_x = from_xlow - device_ctx.grid.get_width_offset({from_xlow, from_ylow, from_layer});
+                 int from_root_y = from_ylow - device_ctx.grid.get_height_offset({from_xlow, from_ylow, from_layer});
+diff --git a/vpr/src/route/connection_router.cpp b/vpr/src/route/connection_router.cpp
+index 721682072..0ee2837a6 100644
+--- a/vpr/src/route/connection_router.cpp
++++ b/vpr/src/route/connection_router.cpp
+@@ -213,7 +213,9 @@ void ConnectionRouter<Heap>::timing_driven_route_connection_from_heap(RRNodeId s
+     }
+ 
+     target_bb.layer_min = rr_graph_->node_layer(RRNodeId(sink_node));
+-    target_bb.layer_max = rr_graph_->node_layer(RRNodeId(sink_node));
++    // The target's IPINs can sit on any layer its tile covers.
++    target_bb.layer_max = target_bb.layer_min - 1
++                          + grid_.get_physical_type({rr_graph_->node_xlow(sink_node), rr_graph_->node_ylow(sink_node), target_bb.layer_min})->layer_span;
+ 
+     // Start measuring path search time
+     std::chrono::steady_clock::time_point begin_time = std::chrono::steady_clock::now();
+diff --git a/vpr/src/route/overuse_report.cpp b/vpr/src/route/overuse_report.cpp
+index a542e5800..4e5b98bd0 100644
+--- a/vpr/src/route/overuse_report.cpp
++++ b/vpr/src/route/overuse_report.cpp
+@@ -224,15 +224,15 @@ static void report_overused_ipin_opin(std::ostream& os,
+         os << "On Tile Pin"
+            << "\n";
+     } else {
+-        auto pb_type_name = get_pb_graph_node_from_pin_physical_num(device_ctx.grid.get_physical_type({grid_x, grid_y, grid_layer}),
++        auto pb_type_name = get_pb_graph_node_from_pin_physical_num(device_ctx.grid.get_footprint_type({grid_x, grid_y, grid_layer}),
+                                                                     rr_graph.node_ptc_num(node_id))
+                                 ->pb_type->name;
+-        auto pb_pin = get_pb_pin_from_pin_physical_num(device_ctx.grid.get_physical_type({grid_x, grid_y, grid_layer}),
++        auto pb_pin = get_pb_pin_from_pin_physical_num(device_ctx.grid.get_footprint_type({grid_x, grid_y, grid_layer}),
+                                                        rr_graph.node_ptc_num(node_id));
+         os << "Intra-Tile Pin - Port : " << pb_pin->port->name << " - PB Type : " << std::string(pb_type_name) << "\n";
+     }
+     print_block_pins_nets(os,
+-                          device_ctx.grid.get_physical_type({grid_x, grid_y, grid_layer}),
++                          device_ctx.grid.get_footprint_type({grid_x, grid_y, grid_layer}),
+                           grid_layer,
+                           grid_x - device_ctx.grid.get_width_offset({grid_x, grid_y, grid_layer}),
+                           grid_y - device_ctx.grid.get_height_offset({grid_x, grid_y, grid_layer}),
+@@ -380,7 +380,7 @@ static void log_single_overused_node_status(int overuse_index, RRNodeId node_id)
+     int x = rr_graph.node_xlow(node_id);
+     int y = rr_graph.node_ylow(node_id);
+     int layer_num = rr_graph.node_layer(node_id);
+-    auto physical_blk = device_ctx.grid.get_physical_type({x, y, layer_num});
++    auto physical_blk = device_ctx.grid.get_footprint_type({x, y, layer_num});
+ 
+     //Determines if direction or side is available for printing
+     auto node_type = rr_graph.node_type(node_id);
+diff --git a/vpr/src/route/route_common.cpp b/vpr/src/route/route_common.cpp
+index 7fd9720e4..666ed4be5 100644
+--- a/vpr/src/route/route_common.cpp
++++ b/vpr/src/route/route_common.cpp
+@@ -711,8 +711,14 @@ t_bb load_net_route_bb(const Netlist<>& net_list,
+     int ymin = rr_graph.node_ylow(driver_rr);
+     int xmax = rr_graph.node_xhigh(driver_rr);
+     int ymax = rr_graph.node_yhigh(driver_rr);
++    // SOURCE and SINK nodes sit on a tile's anchor, but its pins and their
++    // routing can be on any layer the tile covers.
++    auto top_layer_of_tile = [&](RRNodeId node) {
++        return rr_graph.node_layer(node) - 1
++               + device_ctx.grid.get_physical_type({rr_graph.node_xlow(node), rr_graph.node_ylow(node), rr_graph.node_layer(node)})->layer_span;
++    };
+     int layer_min = rr_graph.node_layer(driver_rr);
+-    int layer_max = rr_graph.node_layer(driver_rr);
++    int layer_max = top_layer_of_tile(driver_rr);
+ 
+     auto net_sinks = net_list.net_sinks(net_id);
+     for (size_t ipin = 1; ipin < net_sinks.size() + 1; ++ipin) { //Start at 1 since looping through sinks
+@@ -734,7 +740,7 @@ t_bb load_net_route_bb(const Netlist<>& net_list,
+         ymin = std::min<int>(ymin, tile_bb.ymin());
+         ymax = std::max<int>(ymax, tile_bb.ymax());
+         layer_min = std::min<int>(layer_min, rr_graph.node_layer(sink_rr));
+-        layer_max = std::max<int>(layer_max, rr_graph.node_layer(sink_rr));
++        layer_max = std::max<int>(layer_max, top_layer_of_tile(sink_rr));
+     }
+ 
+     /* Want the channels on all 4 sides to be usable, even if bb_factor = 0. */
+diff --git a/vpr/src/route/router_lookahead_map.cpp b/vpr/src/route/router_lookahead_map.cpp
+index 288a87677..1fd622d66 100644
+--- a/vpr/src/route/router_lookahead_map.cpp
++++ b/vpr/src/route/router_lookahead_map.cpp
+@@ -308,6 +308,14 @@ std::pair<float, float> MapLookahead::get_expected_delay_and_cong(RRNodeId from_
+ 
+     int from_layer_num = rr_graph.node_layer(from_node);
+     int to_layer_num = rr_graph.node_layer(to_node);
++    //A multi-layer target can be entered on the layer we are already on
++    const int to_tile_span = device_ctx.grid.get_footprint_type({rr_graph.node_xlow(to_node),
++                                                                 rr_graph.node_ylow(to_node),
++                                                                 to_layer_num})
++                                 ->layer_span;
++    if (from_layer_num > to_layer_num && from_layer_num < to_layer_num + to_tile_span) {
++        to_layer_num = from_layer_num;
++    }
+     auto [delta_x, delta_y] = util::get_xy_deltas(from_node, to_node);
+     delta_x = abs(delta_x);
+     delta_y = abs(delta_y);
+@@ -322,9 +330,9 @@ std::pair<float, float> MapLookahead::get_expected_delay_and_cong(RRNodeId from_
+         //reachable, we query the f_wire_cost_map (i.e. the wire lookahead) to get the final
+         //delay to reach the sink.
+ 
+-        t_physical_tile_type_ptr from_tile_type = device_ctx.grid.get_physical_type({rr_graph.node_xlow(from_node),
+-                                                                                     rr_graph.node_ylow(from_node),
+-                                                                                     from_layer_num});
++        t_physical_tile_type_ptr from_tile_type = device_ctx.grid.get_footprint_type({rr_graph.node_xlow(from_node),
++                                                                                      rr_graph.node_ylow(from_node),
++                                                                                      from_layer_num});
+ 
+         auto from_tile_index = std::distance(&device_ctx.physical_tile_types[0], from_tile_type);
+ 
+diff --git a/vpr/src/route/router_lookahead_map_utils.cpp b/vpr/src/route/router_lookahead_map_utils.cpp
+index 993bf13a6..03d446b70 100644
+--- a/vpr/src/route/router_lookahead_map_utils.cpp
++++ b/vpr/src/route/router_lookahead_map_utils.cpp
+@@ -421,7 +421,15 @@ t_src_opin_delays compute_router_src_opin_lookahead(bool is_flat) {
+                     }
+ 
+                     //VTR_LOG("Sampling %s at (%d,%d)\n", device_ctx.physical_tile_types[itile].name, sample_loc.x(), sample_loc.y());
+-                    const std::vector<RRNodeId>& rr_nodes_at_loc = device_ctx.rr_graph.node_lookup().find_grid_nodes_at_all_sides(sample_loc.layer_num, sample_loc.x, sample_loc.y, rr_type);
++                    //The pins of a multi-layer tile can be on any layer it covers
++                    std::vector<RRNodeId> rr_nodes_at_loc;
++                    if (device_ctx.grid.get_footprint_type(sample_loc) == &device_ctx.physical_tile_types[itile]) {
++                        for (int dz = 0; dz < device_ctx.physical_tile_types[itile].layer_span; ++dz) {
++                            for (RRNodeId node_id : device_ctx.rr_graph.node_lookup().find_grid_nodes_at_all_sides(sample_loc.layer_num + dz, sample_loc.x, sample_loc.y, rr_type)) {
++                                rr_nodes_at_loc.push_back(node_id);
++                            }
++                        }
++                    }
+                     for (RRNodeId node_id : rr_nodes_at_loc) {
+                         int ptc = rr_graph.node_ptc_num(node_id);
+                         // For the time being, we decide to not let the lookahead explore the node inside the clusters
+@@ -429,7 +437,8 @@ t_src_opin_delays compute_router_src_opin_lookahead(bool is_flat) {
+                             continue;
+                         }
+ 
+-                        VTR_ASSERT(ptc < int(src_opin_delays[from_layer_num][itile].size()));
++                        const int node_layer_num = rr_graph.node_layer(node_id);
++                        VTR_ASSERT(ptc < int(src_opin_delays[node_layer_num][itile].size()));
+ 
+                         //Find the wire types which are reachable from inode and record them and
+                         //the cost to reach them
+@@ -439,7 +448,7 @@ t_src_opin_delays compute_router_src_opin_lookahead(bool is_flat) {
+ 
+                         bool reachable_wire_found = false;
+                         for (int to_layer_num = 0; to_layer_num < num_layers; to_layer_num++) {
+-                            if (!src_opin_delays[from_layer_num][itile][ptc][to_layer_num].empty()) {
++                            if (!src_opin_delays[node_layer_num][itile][ptc][to_layer_num].empty()) {
+                                 reachable_wire_found = true;
+                                 break;
+                             }
+@@ -1276,7 +1285,7 @@ static void dijkstra_flood_to_ipins(RRNodeId node, util::t_chan_ipins_delays& ch
+             int node_y = rr_graph.node_ylow(curr.node);
+             int node_layer = rr_graph.node_layer(curr.node);
+ 
+-            auto tile_type = device_ctx.grid.get_physical_type({node_x, node_y, node_layer});
++            auto tile_type = device_ctx.grid.get_footprint_type({node_x, node_y, node_layer});
+             int itile = tile_type->index;
+ 
+             int ptc = rr_graph.node_ptc_num(curr.node);
+diff --git a/vpr/src/route/rr_graph.cpp b/vpr/src/route/rr_graph.cpp
+index b8ec53197..9d7bc66f7 100644
+--- a/vpr/src/route/rr_graph.cpp
++++ b/vpr/src/route/rr_graph.cpp
+@@ -1026,7 +1026,10 @@ std::set<int> get_layers_of_physical_types(const t_physical_tile_type_ptr type)
+     std::set<int> phy_type_layers;
+     for (int layer = 0; layer < device_ctx.grid.get_num_layers(); layer++) {
+         if (device_ctx.grid.num_instances(type, layer) != 0) {
+-            phy_type_layers.insert(layer);
++            // A spanning tile also occupies the reserved cells above its anchor.
++            for (int dz = 0; dz < type->layer_span && layer + dz < device_ctx.grid.get_num_layers(); ++dz) {
++                phy_type_layers.insert(layer + dz);
++            }
+         }
+     }
+     return phy_type_layers;
+@@ -2565,7 +2568,8 @@ static void add_pins_rr_graph(RRGraphBuilder& rr_graph_builder,
+             int y_offset = y_offset_vec[pin_coord];
+             e_side pin_side = pin_sides_vec[pin_coord];
+             auto node_type = (pin_type == DRIVER) ? OPIN : IPIN;
+-            RRNodeId node_id = node_lookup.find_node(layer,
++            const int pin_layer = layer + get_pin_physical_layer(physical_type, pin_num);
++            RRNodeId node_id = node_lookup.find_node(pin_layer,
+                                                      i + x_offset,
+                                                      j + y_offset,
+                                                      node_type,
+@@ -2595,7 +2599,7 @@ static void add_pins_rr_graph(RRGraphBuilder& rr_graph_builder,
+                                                       j + y_offset,
+                                                       i + x_offset,
+                                                       j + y_offset);
+-                rr_graph_builder.set_node_layer(node_id, layer);
++                rr_graph_builder.set_node_layer(node_id, pin_layer);
+                 rr_graph_builder.add_node_side(node_id, pin_side);
+             }
+         }
+@@ -2785,12 +2789,13 @@ static void build_bidir_rr_opins(RRGraphBuilder& rr_graph_builder,
+             total_pin_Fc += Fc[pin_index][iseg];
+         }
+ 
+-        RRNodeId node_index = rr_graph_builder.node_lookup().find_node(layer, i, j, OPIN, pin_index, side);
++        const int pin_layer = layer + get_pin_physical_layer(type, pin_index);
++        RRNodeId node_index = rr_graph_builder.node_lookup().find_node(pin_layer, i, j, OPIN, pin_index, side);
+         VTR_ASSERT(node_index);
+ 
+         for (auto connected_layer : get_layers_pin_is_connected_to(type, layer, pin_index)) {
+             if (total_pin_Fc > 0) {
+-                get_bidir_opin_connections(rr_graph_builder, layer, connected_layer, i, j, pin_index,
++                get_bidir_opin_connections(rr_graph_builder, pin_layer, connected_layer, i, j, pin_index,
+                                            node_index, rr_edges_to_create, opin_to_track_map,
+                                            chan_details_x,
+                                            chan_details_y);
+@@ -4277,7 +4282,8 @@ static void build_unidir_rr_opins(RRGraphBuilder& rr_graph_builder,
+             continue;
+         }
+ 
+-        RRNodeId opin_node_index = rr_graph_builder.node_lookup().find_node(layer, i, j, OPIN, pin_index, side);
++        const int pin_layer = layer + get_pin_physical_layer(type, pin_index);
++        RRNodeId opin_node_index = rr_graph_builder.node_lookup().find_node(pin_layer, i, j, OPIN, pin_index, side);
+         if (!opin_node_index) continue; //No valid from node
+ 
+         for (int iseg = 0; iseg < num_seg_types; iseg++) {
+@@ -4337,7 +4343,7 @@ static void build_unidir_rr_opins(RRGraphBuilder& rr_graph_builder,
+ 
+             for (auto connected_layer : get_layers_pin_is_connected_to(type, layer, pin_index)) {
+                 /* Check the pin physical layer and connect it to the same layer if necessary */
+-                rr_edge_count += get_unidir_opin_connections(rr_graph_builder, layer, connected_layer, chan, seg,
++                rr_edge_count += get_unidir_opin_connections(rr_graph_builder, pin_layer, connected_layer, chan, seg,
+                                                              seg_type_Fc, seg_index, chan_type, seg_details,
+                                                              opin_node_index,
+                                                              rr_edges_to_create,
+diff --git a/vpr/src/route/rr_graph2.cpp b/vpr/src/route/rr_graph2.cpp
+index b3f34bb95..7f3f16a84 100644
+--- a/vpr/src/route/rr_graph2.cpp
++++ b/vpr/src/route/rr_graph2.cpp
+@@ -1465,8 +1465,10 @@ static void add_pins_spatial_lookup(RRGraphBuilder& rr_graph_builder,
+             for (int height_offset = 0; height_offset < physical_type_ptr->height; ++height_offset) {
+                 int y_tile = root_y + height_offset;
+                 //only nodes on the tile may be located in a location other than the root-location
+-                rr_graph_builder.node_lookup().reserve_nodes(layer, x_tile, y_tile, OPIN, physical_type_ptr->num_pins, side);
+-                rr_graph_builder.node_lookup().reserve_nodes(layer, x_tile, y_tile, IPIN, physical_type_ptr->num_pins, side);
++                for (int dz = 0; dz < physical_type_ptr->layer_span; ++dz) {
++                    rr_graph_builder.node_lookup().reserve_nodes(layer + dz, x_tile, y_tile, OPIN, physical_type_ptr->num_pins, side);
++                    rr_graph_builder.node_lookup().reserve_nodes(layer + dz, x_tile, y_tile, IPIN, physical_type_ptr->num_pins, side);
++                }
+             }
+         }
+     }
+@@ -1478,16 +1480,17 @@ static void add_pins_spatial_lookup(RRGraphBuilder& rr_graph_builder,
+         std::vector<e_side> pin_sides;
+         std::tie(x_offset, y_offset, pin_sides) = get_pin_coordinates(physical_type_ptr, pin_num, wanted_sides);
+         auto pin_type = get_pin_type_from_pin_physical_num(physical_type_ptr, pin_num);
++        const int pin_layer = layer + get_pin_physical_layer(physical_type_ptr, pin_num);
+         for (int pin_coord_idx = 0; pin_coord_idx < (int)pin_sides.size(); pin_coord_idx++) {
+             int x_tile = root_x + x_offset[pin_coord_idx];
+             int y_tile = root_y + y_offset[pin_coord_idx];
+             auto side = pin_sides[pin_coord_idx];
+             if (pin_type == DRIVER) {
+-                rr_graph_builder.node_lookup().add_node(RRNodeId(*index), layer, x_tile, y_tile, OPIN, pin_num, side);
++                rr_graph_builder.node_lookup().add_node(RRNodeId(*index), pin_layer, x_tile, y_tile, OPIN, pin_num, side);
+                 assigned_to_rr_node = true;
+             } else {
+                 VTR_ASSERT(pin_type == RECEIVER);
+-                rr_graph_builder.node_lookup().add_node(RRNodeId(*index), layer, x_tile, y_tile, IPIN, pin_num, side);
++                rr_graph_builder.node_lookup().add_node(RRNodeId(*index), pin_layer, x_tile, y_tile, IPIN, pin_num, side);
+                 assigned_to_rr_node = true;
+             }
+         }
+@@ -1874,8 +1877,9 @@ int get_track_to_pins(RRGraphBuilder& rr_graph_builder,
+ 
+                         /* Check there is a connection and Fc map isn't wrong */
+                         /*int to_node = get_rr_node_index(L_rr_node_indices, x + width_offset, y + height_offset, IPIN, ipin, side);*/
+-                        RRNodeId to_node = rr_graph_builder.node_lookup().find_node(layer_index, x, y, IPIN, ipin, side);
+-                        int switch_type = (layer_index == layer) ? wire_to_ipin_switch : wire_to_pin_between_dice_switch;
++                        const int pin_layer = layer_index + get_pin_physical_layer(type, ipin);
++                        RRNodeId to_node = rr_graph_builder.node_lookup().find_node(pin_layer, x, y, IPIN, ipin, side);
++                        int switch_type = (pin_layer == layer) ? wire_to_ipin_switch : wire_to_pin_between_dice_switch;
+                         if (to_node) {
+                             rr_edges_to_create.emplace_back(from_rr_node, to_node, switch_type, false);
+                             ++num_conn;
+diff --git a/vpr/src/tileable_rr_graph/rr_graph_view_util.cpp b/vpr/src/tileable_rr_graph/rr_graph_view_util.cpp
+index f4647f682..ce0978d49 100644
+--- a/vpr/src/tileable_rr_graph/rr_graph_view_util.cpp
++++ b/vpr/src/tileable_rr_graph/rr_graph_view_util.cpp
+@@ -113,16 +113,16 @@ std::vector<RRNodeId> find_rr_graph_grid_nodes(const RRGraphView& rr_graph,
+     int width_offset = device_grid.get_width_offset(tile_loc);
+     int height_offset = device_grid.get_height_offset(tile_loc);
+     
+-    for (int pin = 0; pin < device_grid.get_physical_type(tile_loc)->num_pins; ++pin) {
++    for (int pin = 0; pin < device_grid.get_footprint_type(tile_loc)->num_pins; ++pin) {
+         /* Skip those pins have been ignored during rr_graph build-up */
+-        if (true == device_grid.get_physical_type(tile_loc)->is_ignored_pin[pin]) {
++        if (true == device_grid.get_footprint_type(tile_loc)->is_ignored_pin[pin]) {
+             /* If specified, force to include all the clock pins */
+-            if (!include_clock || std::find(device_grid.get_physical_type(tile_loc)->get_clock_pins_indices().begin(), device_grid.get_physical_type(tile_loc)->get_clock_pins_indices().end(), pin) == device_grid.get_physical_type(tile_loc)->get_clock_pins_indices().end()) {
++            if (!include_clock || std::find(device_grid.get_footprint_type(tile_loc)->get_clock_pins_indices().begin(), device_grid.get_footprint_type(tile_loc)->get_clock_pins_indices().end(), pin) == device_grid.get_footprint_type(tile_loc)->get_clock_pins_indices().end()) {
+                 continue;
+             }
+         }
+         
+-        if (false == device_grid.get_physical_type(tile_loc)->pinloc[width_offset][height_offset][side][pin]) {
++        if (false == device_grid.get_footprint_type(tile_loc)->pinloc[width_offset][height_offset][side][pin]) {
+             /* Not the pin on this side, we skip */
+             continue;
+         }
+diff --git a/vpr/src/util/vpr_utils.cpp b/vpr/src/util/vpr_utils.cpp
+index 2d8796fc2..dc64ded37 100644
+--- a/vpr/src/util/vpr_utils.cpp
++++ b/vpr/src/util/vpr_utils.cpp
+@@ -168,8 +168,8 @@ void sync_grid_to_blocks() {
+         if (type != device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})) {
+             VPR_FATAL_ERROR(VPR_ERROR_PLACE, "A block is in a grid location (%d x %d) layer (%d) with a conflicting types '%s' and '%s' .\n",
+                             blk_x, blk_y, blk_layer,
+-                            type->name,
+-                            device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})->name);
++                            type->name.c_str(),
++                            device_ctx.grid.get_physical_type({blk_x, blk_y, blk_layer})->name.c_str());
+         }
+ 
+         /* Check already in use */
+@@ -205,13 +205,13 @@ std::string rr_node_arch_name(RRNodeId inode, bool is_flat) {
+     std::string rr_node_arch_name;
+     if (rr_graph.node_type(inode) == OPIN || rr_graph.node_type(inode) == IPIN) {
+         //Pin names
+-        auto type = device_ctx.grid.get_physical_type({rr_graph.node_xlow(rr_node),
++        auto type = device_ctx.grid.get_footprint_type({rr_graph.node_xlow(rr_node),
+                                                        rr_graph.node_ylow(rr_node),
+                                                        rr_graph.node_layer(rr_node)});
+         rr_node_arch_name += block_type_pin_index_to_name(type, rr_graph.node_pin_num(rr_node), is_flat);
+     } else if (rr_graph.node_type(inode) == SOURCE || rr_graph.node_type(inode) == SINK) {
+         //Set of pins associated with SOURCE/SINK
+-        auto type = device_ctx.grid.get_physical_type({rr_graph.node_xlow(rr_node),
++        auto type = device_ctx.grid.get_footprint_type({rr_graph.node_xlow(rr_node),
+                                                        rr_graph.node_ylow(rr_node),
+                                                        rr_graph.node_layer(rr_node)});
+         auto pin_names = block_type_class_index_to_pin_names(type, rr_graph.node_class_num(rr_node), is_flat);
+@@ -1973,7 +1973,7 @@ bool is_inter_cluster_node(const RRGraphView& rr_graph_view,
+         int y_low = rr_graph_view.node_ylow(node_id);
+         int layer = rr_graph_view.node_layer(node_id);
+         int node_ptc = rr_graph_view.node_ptc_num(node_id);
+-        const t_physical_tile_type_ptr physical_tile = g_vpr_ctx.device().grid.get_physical_type({x_low, y_low, layer});
++        const t_physical_tile_type_ptr physical_tile = g_vpr_ctx.device().grid.get_footprint_type({x_low, y_low, layer});
+         if (node_type == IPIN || node_type == OPIN) {
+             return is_pin_on_tile(physical_tile, node_ptc);
+         } else {
+@@ -1991,7 +1991,7 @@ int get_rr_node_max_ptc(const RRGraphView& rr_graph_view,
+     VTR_ASSERT(node_type == IPIN || node_type == OPIN || node_type == SINK || node_type == SOURCE);
+ 
+     const DeviceContext& device_ctx = g_vpr_ctx.device();
+-    auto physical_type = device_ctx.grid.get_physical_type({rr_graph_view.node_xlow(node_id),
++    auto physical_type = device_ctx.grid.get_footprint_type({rr_graph_view.node_xlow(node_id),
+                                                             rr_graph_view.node_ylow(node_id),
+                                                             rr_graph_view.node_layer(node_id)});
+ 
+@@ -2016,8 +2016,9 @@ RRNodeId get_pin_rr_node_id(const RRSpatialLookup& rr_spatial_lookup,
+     std::tie(x_offset, y_offset, pin_sides) = get_pin_coordinates(physical_tile, pin_physical_num, std::vector<e_side>(TOTAL_2D_SIDES.begin(), TOTAL_2D_SIDES.end()));
+     VTR_ASSERT(!x_offset.empty());
+     RRNodeId node_id = RRNodeId::INVALID();
++    const int pin_layer = layer + get_pin_physical_layer(physical_tile, pin_physical_num);
+     for (int coord_idx = 0; coord_idx < (int)pin_sides.size(); coord_idx++) {
+-        node_id = rr_spatial_lookup.find_node(layer,
++        node_id = rr_spatial_lookup.find_node(pin_layer,
+                                               root_i + x_offset[coord_idx],
+                                               root_j + y_offset[coord_idx],
+                                               node_type,
+diff --git a/vpr/test/test_compressed_grid.cpp b/vpr/test/test_compressed_grid.cpp
+index 86c2d1f66..523586372 100644
+--- a/vpr/test/test_compressed_grid.cpp
++++ b/vpr/test/test_compressed_grid.cpp
+@@ -10,6 +10,16 @@
+ 
+ #include <limits>
+ 
++TEST_CASE("Empty placement layers have no compressed location", "[layers]") {
++    t_compressed_block_grid grid;
++    grid.compressed_to_grid_x = {{1, 3}, {}};
++    grid.compressed_to_grid_y = {{1, 3}, {}};
++    auto empty = grid.grid_loc_to_compressed_loc_approx({1, 1, 1});
++    REQUIRE(empty.x == OPEN);
++    REQUIRE(empty.y == OPEN);
++    REQUIRE(grid.grid_loc_to_compressed_loc_approx({1, 1, 0}).x == 0);
++}
++
+ namespace {
+ 
+ void set_type_tile_to_empty(const int x, const int y,
+@@ -332,4 +342,4 @@ TEST_CASE("test_compressed_grid", "[vpr_compressed_grid]") {
+ 
+ }
+ 
+-} // namespace
+\ No newline at end of file
++} // namespace
+diff --git a/vpr/test/test_layer_utilization.cpp b/vpr/test/test_layer_utilization.cpp
+new file mode 100644
+index 000000000..e61858cac
+--- /dev/null
++++ b/vpr/test/test_layer_utilization.cpp
+@@ -0,0 +1,41 @@
++#include <map>
++#include "catch2/catch_test_macros.hpp"
++#include "catch2/catch_approx.hpp"
++#include "SetupGrid.h"
++#include "device_grid.h"
++
++TEST_CASE("Device utilization counts each physical layer cell once", "[layers]") {
++    t_physical_tile_type empty, clb;
++    empty.width = empty.height = 1;
++    clb.width = clb.height = clb.capacity = 1;
++    clb.sub_tiles.resize(1);
++    t_logical_block_type logical;
++    logical.equivalent_tiles.push_back(&clb);
++    std::map<t_logical_block_type_ptr, size_t> used = {{&logical, 1}};
++    int layers = 2;
++    int width = 1;
++    float expected = 1.f;
++    clb.layer_span = 2;
++    SECTION("one spanning CLB fills both cells") {}
++    SECTION("unreserved empty space still contributes") {
++        width = 3; // two occupied cells and four ordinary empty cells
++        expected = 1.f / 3.f;
++    }
++    SECTION("ordinary 2D full device") {
++        layers = clb.layer_span = 1;
++    }
++    SECTION("ordinary 2D with empty space") {
++        layers = clb.layer_span = 1;
++        width = 2;
++        expected = .5f;
++    }
++    vtr::NdMatrix<t_grid_tile, 3> cells;
++    cells.resize({static_cast<size_t>(layers), static_cast<size_t>(width), 1});
++    for (int z = 0; z < layers; ++z)
++        for (int x = 0; x < width; ++x) cells[z][x][0].type = &empty;
++    cells[0][0][0].type = &clb;
++    DeviceGrid grid("utilization", cells);
++    REQUIRE(grid.num_instances(&clb, -1) == 1);
++    REQUIRE(calculate_device_utilization(grid, used) == Catch::Approx(expected));
++    REQUIRE(calculate_device_utilization(grid, {}) == 0.f);
++}
+diff --git a/vtr_flow/scripts/python_libs/vtr/util.py b/vtr_flow/scripts/python_libs/vtr/util.py
+index 61b52ee99..1f7c31234 100644
+--- a/vtr_flow/scripts/python_libs/vtr/util.py
++++ b/vtr_flow/scripts/python_libs/vtr/util.py
+@@ -247,8 +247,7 @@ def pretty_print_table(file, border=False):
+                 row = row[:-1]
+             if first:
+                 table.field_names = list(row)
+-                for head in list(row):
+-                    table.align[head] = "l"
++                table.align = "l"
+                 first = False
+             else:
+                 table.add_row(row)

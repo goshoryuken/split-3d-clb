@@ -1,0 +1,55 @@
+diff --git a/vpr/src/base/SetupVPR.cpp b/vpr/src/base/SetupVPR.cpp
+index d2a5124f1..bf7ae0a61 100644
+--- a/vpr/src/base/SetupVPR.cpp
++++ b/vpr/src/base/SetupVPR.cpp
+@@ -673,6 +673,7 @@ static void SetupPlacerOpts(const t_options& Options, t_placer_opts* PlacerOpts)
+     PlacerOpts->tsu_rel_margin = Options.place_tsu_rel_margin;
+     PlacerOpts->tsu_abs_margin = Options.place_tsu_abs_margin;
+     PlacerOpts->delay_model_type = Options.place_delay_model;
++    PlacerOpts->delay_model_inferred = Options.place_delay_model.provenance() != argparse::Provenance::SPECIFIED;
+     PlacerOpts->delay_model_reducer = Options.place_delay_model_reducer;
+ 
+     PlacerOpts->place_freq = PLACE_ONCE; /* DEFAULT */
+diff --git a/vpr/src/base/vpr_types.h b/vpr/src/base/vpr_types.h
+index aab8835ad..63e355815 100644
+--- a/vpr/src/base/vpr_types.h
++++ b/vpr/src/base/vpr_types.h
+@@ -1127,6 +1127,8 @@ struct t_placer_opts {
+     e_timing_update_type timing_update_type;
+ 
+     PlaceDelayModelType delay_model_type;
++    ///@brief True unless the user chose the delay model; a default simple model then becomes delta on multi-layer devices
++    bool delay_model_inferred = false;
+     e_reducer delay_model_reducer;
+ 
+     float delay_offset;
+diff --git a/vpr/src/place/timing_place_lookup.cpp b/vpr/src/place/timing_place_lookup.cpp
+index dc838a40f..e48462fad 100644
+--- a/vpr/src/place/timing_place_lookup.cpp
++++ b/vpr/src/place/timing_place_lookup.cpp
+@@ -199,11 +199,22 @@ std::unique_ptr<PlaceDelayModel> compute_place_delay_model(const t_placer_opts&
+     std::unique_ptr<PlaceDelayModel> place_delay_model;
+     float min_cross_layer_delay = get_min_cross_layer_delay();
+ 
+-    if (placer_opts.delay_model_type == PlaceDelayModelType::SIMPLE) {
++    PlaceDelayModelType model_type = placer_opts.delay_model_type;
++    const int num_layers = g_vpr_ctx.device().grid.get_num_layers();
++    if (model_type == PlaceDelayModelType::SIMPLE && placer_opts.delay_model_inferred && num_layers > 1) {
++        // The simple model takes delays from the router lookahead, which charges a layer change only
++        // the crossing itself and not the switch onto the other layer's wires, so placement spreads
++        // connected blocks over layers too freely. Measure delays by routing instead.
++        VTR_LOG("Placement delay model: delta, since the device has %d layers and the default simple model "
++                "underestimates changing layers (set --place_delay_model to override)\n", num_layers);
++        model_type = PlaceDelayModelType::DELTA;
++    }
++
++    if (model_type == PlaceDelayModelType::SIMPLE) {
+         place_delay_model = std::make_unique<SimpleDelayModel>();
+-    } else if (placer_opts.delay_model_type == PlaceDelayModelType::DELTA) {
++    } else if (model_type == PlaceDelayModelType::DELTA) {
+         place_delay_model = std::make_unique<DeltaDelayModel>(min_cross_layer_delay, is_flat);
+-    } else if (placer_opts.delay_model_type == PlaceDelayModelType::DELTA_OVERRIDE) {
++    } else if (model_type == PlaceDelayModelType::DELTA_OVERRIDE) {
+         place_delay_model = std::make_unique<OverrideDelayModel>(min_cross_layer_delay, is_flat);
+     } else {
+         VTR_ASSERT_MSG(false, "Invalid placer delay model");

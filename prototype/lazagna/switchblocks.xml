@@ -1,0 +1,92 @@
+    <!-- Custom switch blocks for compare_2d_3d.py, after VTR's
+         vtr_flow/arch/multi_die/stratixiv_3d/3d_SB_inter_die_stratixiv_arch.timing.xml, which uses
+         the same L4 and L16 wires. The planar blocks are the same in 2D and 3D; VERTICAL is
+         replaced by a block whose wires turn onto the layer above or below, or by nothing. -->
+    <switchblocklist>
+        <switchblock name="wilton_turn_clockwise_core" type="unidir">
+            <switchblock_location type="CORE"/>
+            <switchfuncs>
+                <func type="tl" formula="W-t"/>
+                <func type="rt" formula="t+1"/>
+                <func type="br" formula="2*W-2-t"/>
+                <func type="lb" formula="t+1"/>
+            </switchfuncs>
+            <wireconn num_conns="3*to" from_type="L16" from_switchpoint="0,12,8,4" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="10*to" from_type="L4" from_switchpoint="0" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="2*to" from_order="shuffled">
+                <from type="L16" switchpoint="0,12,8,4"/>
+                <from type="L4" switchpoint="0,1,2,3"/>
+                <to type="L4" switchpoint="0"/>
+            </wireconn>
+        </switchblock>
+        <switchblock name="wilton_turn_counter_clockwise_core" type="unidir">
+            <switchblock_location type="CORE"/>
+            <switchfuncs>
+                <func type="lt" formula="W-t"/>
+                <func type="tr" formula="t+1"/>
+                <func type="rb" formula="2*W-2-t"/>
+                <func type="bl" formula="t+1"/>
+            </switchfuncs>
+            <wireconn num_conns="3*to" from_type="L16" from_switchpoint="0,12,8,4" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="10*to" from_type="L4" from_switchpoint="0" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="2*to" from_order="shuffled">
+                <from type="L16" switchpoint="0,12,8,4"/>
+                <from type="L4" switchpoint="0,1,2,3"/>
+                <to type="L4" switchpoint="0"/>
+            </wireconn>
+        </switchblock>
+        <switchblock name="wilton_straight" type="unidir">
+            <switchblock_location type="EVERYWHERE"/>
+            <switchfuncs>
+                <func type="lr" formula="t"/>
+                <func type="tb" formula="t"/>
+                <func type="rl" formula="t"/>
+                <func type="bt" formula="t"/>
+            </switchfuncs>
+            <wireconn num_conns="3*to" from_type="L16" from_switchpoint="0,12,8,4" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="11*to" from_type="L4" from_switchpoint="0,3,2,1" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="2*to" from_order="shuffled">
+                <from type="L16" switchpoint="0,12,8,4"/>
+                <from type="L4" switchpoint="0"/>
+                <to type="L4" switchpoint="0"/>
+            </wireconn>
+        </switchblock>
+VERTICAL
+        <switchblock name="wilton_straight_corner" type="unidir">
+            <switchblock_location type="CORNER"/>
+            <switchfuncs>
+                <func type="lt" formula="t"/>
+                <func type="tr" formula="t"/>
+                <func type="rb" formula="t"/>
+                <func type="bl" formula="t"/>
+                <func type="tl" formula="t"/>
+                <func type="rt" formula="t"/>
+                <func type="br" formula="t"/>
+                <func type="lb" formula="t"/>
+            </switchfuncs>
+            <wireconn num_conns="3*to" from_type="L16" from_switchpoint="0,12,8,4" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="11*to" from_type="L4" from_switchpoint="0,3,2,1" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="2*to" from_order="shuffled">
+                <from type="L16" switchpoint="0,12,8,4"/>
+                <from type="L4" switchpoint="0"/>
+                <to type="L4" switchpoint="0"/>
+            </wireconn>
+        </switchblock>
+        <switchblock name="wilton_turn_fringe" type="unidir">
+            <switchblock_location type="FRINGE"/>
+            <switchfuncs>
+                <func type="lt" formula="W-t"/>
+                <func type="tr" formula="t+1"/>
+                <func type="rb" formula="2*W-2-t"/>
+                <func type="bl" formula="t+1"/>
+                <func type="tl" formula="W-t"/>
+                <func type="rt" formula="t+1"/>
+                <func type="br" formula="2*W-2-t"/>
+                <func type="lb" formula="t+1"/>
+            </switchfuncs>
+            <wireconn num_conns="3*max(from,to)" from_type="L16" from_switchpoint="0,12,8,4" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="21*max(from,to)" from_type="L4" from_switchpoint="0" to_type="L16" to_switchpoint="0"/>
+            <wireconn num_conns="1*max(from,to)" from_type="L16" from_switchpoint="0,12,8,4" from_order="fixed" to_type="L4" to_switchpoint="0"/>
+            <wireconn num_conns="1*max(from,to)" from_type="L4" from_switchpoint="0,1,2,3" from_order="shuffled" to_type="L4" to_switchpoint="0"/>
+        </switchblock>
+    </switchblocklist>

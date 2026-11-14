@@ -1,0 +1,27 @@
+diff --git a/vpr/src/route/rr_graph.cpp b/vpr/src/route/rr_graph.cpp
+index 9dbfef0fb..35ef6d443 100644
+--- a/vpr/src/route/rr_graph.cpp
++++ b/vpr/src/route/rr_graph.cpp
+@@ -1032,7 +1032,21 @@ std::set<int> get_layers_of_physical_types(const t_physical_tile_type_ptr type)
+             }
+         }
+     }
+-    return phy_type_layers;
++    // A pin that reaches another layer's tracks (pin layer_offset) needs a connection-block
++    // pattern for that layer even where this type has no instances there: the pin-to-track
++    // map is indexed by the track's layer and filled only for the layers listed here, so
++    // without this an input pin of a type placed on one layer never reads the other layer's
++    // tracks (output pins are unaffected: build_unidir_rr_opins does not use this list).
++    std::set<int> reached = phy_type_layers;
++    for (int layer = 0; layer < device_ctx.grid.get_num_layers(); layer++) {
++        if (device_ctx.grid.num_instances(type, layer) == 0) continue;
++        for (int pin = 0; pin < type->num_pins; ++pin) {
++            for (int to : get_layers_pin_is_connected_to(type, layer, pin)) {
++                reached.insert(to);
++            }
++        }
++    }
++    return reached;
+ }
+ 
+ std::set<int> get_layers_pin_is_connected_to(const t_physical_tile_type_ptr type, int from_layer, int pin_index) {

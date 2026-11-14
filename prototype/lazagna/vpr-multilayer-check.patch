@@ -1,0 +1,21 @@
+diff --git a/vpr/src/route/check_route.cpp b/vpr/src/route/check_route.cpp
+index 24084ac0e..9a135717e 100644
+--- a/vpr/src/route/check_route.cpp
++++ b/vpr/src/route/check_route.cpp
+@@ -312,8 +312,14 @@ static bool check_adjacent(RRNodeId from_node, RRNodeId to_node, bool is_flat) {
+         to_yhigh = tile_bb.ymax();
+     }
+ 
+-    // Layer numbers are should not be more than one layer apart for connected nodes
+-    VTR_ASSERT(abs(from_layer - to_layer) <= 1);
++    // Connected nodes are at most one layer apart, except a tile's pins and its class nodes: a tile
++    // spanning several layers keeps SOURCE/SINK on its base layer and its pins on any of its layers.
++    int max_layer_step = 1;
++    if ((from_type == SOURCE && to_type == OPIN) || (from_type == IPIN && to_type == SINK)) {
++        t_physical_tile_type_ptr tile = device_ctx.grid.get_physical_type({from_xlow, from_ylow, std::min(from_layer, to_layer)});
++        max_layer_step = std::max(1, tile->layer_span - 1);
++    }
++    VTR_ASSERT(abs(from_layer - to_layer) <= max_layer_step);
+     switch (from_type) {
+         case SOURCE:
+             VTR_ASSERT(to_type == OPIN);

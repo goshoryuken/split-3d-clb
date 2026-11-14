@@ -1,0 +1,21 @@
+# ============================================================
+# LaZagna Setup - 2D baseline for the two-layer CLB
+# ============================================================
+# Same CLB, grid and layout, all on one layer. The channel width matches the
+# total tracks of the two-layer fabric: 50 per layer.
+# ============================================================
+
+experiment_name: "2d_clb"
+
+grid:
+  width_2d: 14
+  height_2d: 14
+  channel_width: 100
+
+architectures:
+  - type: 2d
+    arch_file: "{lazagna_root}/arch_files/vtr_2d_clb_arch.xml"
+
+benchmarks:
+  directory: "{lazagna_root}/benchmarks/clb_compare"
+  is_verilog: false

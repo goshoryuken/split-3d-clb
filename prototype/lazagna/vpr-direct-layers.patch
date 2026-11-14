@@ -1,0 +1,134 @@
+diff --git a/libs/libarchfpga/src/physical_types.h b/libs/libarchfpga/src/physical_types.h
+index 2e9892a6a..ba7b0eb3b 100644
+--- a/libs/libarchfpga/src/physical_types.h
++++ b/libs/libarchfpga/src/physical_types.h
+@@ -1883,6 +1883,11 @@ struct t_direct_inf {
+     int y_offset;
+     /// The subtile offset from the source to the sink of this connection
+     int sub_tile_offset;
++    /// The offset from the source tile's base layer to the sink tile's base layer (3D)
++    int layer_offset = 0;
++    /// Whether nets on this connection form placement macros (carry chains). A direct that is
++    /// only a routing shortcut between general pins sets this false.
++    bool placement_macro = true;
+     /// The index into the switch list for the switch used by this direct
+     int switch_type;
+     /// The associated from_pin’s block side
+diff --git a/libs/libarchfpga/src/read_xml_arch_file.cpp b/libs/libarchfpga/src/read_xml_arch_file.cpp
+index 04cf0120a..8ddfe24d3 100644
+--- a/libs/libarchfpga/src/read_xml_arch_file.cpp
++++ b/libs/libarchfpga/src/read_xml_arch_file.cpp
+@@ -4583,7 +4583,9 @@ static std::vector<t_direct_inf> ProcessDirects(pugi::xml_node Parent,
+     /* Load the directs. */
+     pugi::xml_node Node = get_first_child(Parent, "direct", loc_data);
+     for (int i = 0; i < num_directs; ++i) {
+-        expect_only_attributes(Node, {"name", "from_pin", "to_pin", "x_offset", "y_offset", "z_offset", "switch_name", "from_side", "to_side"}, loc_data);
++        expect_only_attributes(Node, {"name", "from_pin", "to_pin", "x_offset", "y_offset", "z_offset", "layer_offset",
++                                      "placement_macro", "switch_name", "from_side", "to_side"},
++                               loc_data);
+ 
+         const char* direct_name = get_attribute(Node, "name", loc_data).value();
+         /* Check for direct name collisions */
+@@ -4612,6 +4614,8 @@ static std::vector<t_direct_inf> ProcessDirects(pugi::xml_node Parent,
+         directs[i].x_offset = get_attribute(Node, "x_offset", loc_data).as_int(0);
+         directs[i].y_offset = get_attribute(Node, "y_offset", loc_data).as_int(0);
+         directs[i].sub_tile_offset = get_attribute(Node, "z_offset", loc_data).as_int(0);
++        directs[i].layer_offset = get_attribute(Node, "layer_offset", loc_data, ReqOpt::OPTIONAL).as_int(0);
++        directs[i].placement_macro = get_attribute(Node, "placement_macro", loc_data, ReqOpt::OPTIONAL).as_bool(true);
+ 
+         std::string from_side_str = get_attribute(Node, "from_side", loc_data, ReqOpt::OPTIONAL).value();
+         directs[i].from_side = string_to_side(from_side_str);
+diff --git a/vpr/src/place/place_delay_model.cpp b/vpr/src/place/place_delay_model.cpp
+index b75844add..961648055 100644
+--- a/vpr/src/place/place_delay_model.cpp
++++ b/vpr/src/place/place_delay_model.cpp
+@@ -824,7 +824,11 @@ float comp_td_single_connection_delay(const PlaceDelayModel* delay_model,
+         }
+         // For debugging purposes, write the delay model to file once 
+         if (!written){
+-            delay_model->write(std::string("delay_model.txt"));
++            // A debug dump only: some delay models cannot be written in every build.
++            try {
++                delay_model->write(std::string("delay_model.txt"));
++            } catch (const VprError&) {
++            }
+             written = true;
+         }
+             
+diff --git a/vpr/src/place/place_macro.cpp b/vpr/src/place/place_macro.cpp
+index 5de624822..cd5f205cf 100644
+--- a/vpr/src/place/place_macro.cpp
++++ b/vpr/src/place/place_macro.cpp
+@@ -415,6 +415,9 @@ void PlaceMacros::alloc_and_load_idirect_from_blk_pin_(const std::vector<t_direc
+     /* Load the values */
+     // Go through directs and find pins with possible direct connections
+     for (size_t idirect = 0; idirect < directs.size(); idirect++) {
++        // Routing shortcuts between general pins never form carry chains.
++        if (!directs[idirect].placement_macro) continue;
++
+         // Parse out the pb_type and port name, possibly pin_indices from from_pin
+         auto [from_end_pin_index, from_start_pin_index, from_pb_type_name, from_port_name] = parse_direct_pin_name(directs[idirect].from_pin,
+                                                                                                                    directs[idirect].line);
+diff --git a/vpr/src/place/timing_place_lookup.cpp b/vpr/src/place/timing_place_lookup.cpp
+index 86dc396e2..dc838a40f 100644
+--- a/vpr/src/place/timing_place_lookup.cpp
++++ b/vpr/src/place/timing_place_lookup.cpp
+@@ -1092,6 +1092,9 @@ static bool find_direct_connect_sample_locations(const t_direct_inf* direct,
+     auto& grid = device_ctx.grid;
+     const auto& node_lookup = device_ctx.rr_graph.node_lookup();
+ 
++    // Directs between layers are not sampled here; the delta delay model routes them directly.
++    if (direct->layer_offset != 0) return false;
++
+     //Search the grid for an instance of from/to blocks which satisfy this direct connect offsets,
+     //and which has the appropriate pins
+     int from_x = -1;
+diff --git a/vpr/src/route/rr_graph.cpp b/vpr/src/route/rr_graph.cpp
+index 9d7bc66f7..9dbfef0fb 100644
+--- a/vpr/src/route/rr_graph.cpp
++++ b/vpr/src/route/rr_graph.cpp
+@@ -4505,15 +4505,19 @@ static int get_opin_direct_connections(RRGraphBuilder& rr_graph_builder,
+ 
+             if (directs[i].from_side != NUM_2D_SIDES && directs[i].from_side != side) continue;
+ 
+-            //Offset must be in range
++            //Offset must be in range. layer is the source tile's base layer; a layer_offset
++            //direct reaches the tile whose base layer is that many layers away.
++            const int target_layer = layer + directs[i].layer_offset;
++            if (target_layer < 0 || target_layer >= device_ctx.grid.get_num_layers()) continue;
+             if (x + directs[i].x_offset < int(device_ctx.grid.width() - 1)
+                 && x + directs[i].x_offset > 0
+                 && y + directs[i].y_offset < int(device_ctx.grid.height() - 1)
+                 && y + directs[i].y_offset > 0) {
++                const t_physical_tile_loc target_loc{x + directs[i].x_offset, y + directs[i].y_offset, target_layer};
++                //A cell reserved for a tile anchored on a lower layer is not a target
++                if (device_ctx.grid.get_layer_anchor_offset(target_loc) != 0) continue;
+                 //Only add connections if the target clb type matches the type in the direct specification
+-                t_physical_tile_type_ptr target_type = device_ctx.grid.get_physical_type({x + directs[i].x_offset,
+-                                                                                          y + directs[i].y_offset,
+-                                                                                          layer});
++                t_physical_tile_type_ptr target_type = device_ctx.grid.get_physical_type(target_loc);
+ 
+                 if (clb_to_clb_directs[i].to_clb_type == target_type
+                     && z + directs[i].sub_tile_offset < int(target_type->capacity)
+@@ -4570,16 +4574,18 @@ static int get_opin_direct_connections(RRGraphBuilder& rr_graph_builder,
+ 
+                         /* Add new ipin edge to list of edges */
+                         std::vector<RRNodeId> inodes;
++                        //The ipin's node sits on the layer of the target tile where the pin is
++                        const int ipin_layer = target_layer + get_pin_physical_layer(target_type, ipin);
+ 
+                         if (directs[i].to_side != NUM_2D_SIDES) {
+                             //Explicit side specified, only create if pin exists on that side
+-                            RRNodeId inode = rr_graph_builder.node_lookup().find_node(layer, x + directs[i].x_offset, y + directs[i].y_offset, IPIN, ipin, directs[i].to_side);
++                            RRNodeId inode = rr_graph_builder.node_lookup().find_node(ipin_layer, x + directs[i].x_offset, y + directs[i].y_offset, IPIN, ipin, directs[i].to_side);
+                             if (inode) {
+                                 inodes.push_back(inode);
+                             }
+                         } else {
+                             //No side specified, get all candidates
+-                            inodes = rr_graph_builder.node_lookup().find_nodes_at_all_sides(layer, x + directs[i].x_offset, y + directs[i].y_offset, IPIN, ipin);
++                            inodes = rr_graph_builder.node_lookup().find_nodes_at_all_sides(ipin_layer, x + directs[i].x_offset, y + directs[i].y_offset, IPIN, ipin);
+                         }
+ 
+                         if (inodes.size() > 0) {
