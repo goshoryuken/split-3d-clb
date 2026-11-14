@@ -9,8 +9,6 @@ possible, I extended **VTR/VPR**, **OpenFPGA** and **LaZagna** so that a CLB can
 each LUT and each pin on a chosen layer, then measured it against LaZagna's stacked 3D CLBs and a
 2D FPGA.
 
-<p align="center"><img src="docs/figures/stacked_vs_split.svg" width="860" alt="LaZagna stacks a whole 10-LUT CLB on each layer, joined only through the routing; the split CLB is one 20-LUT CLB with 10 LUTs and its own crossbar on each layer, and crossings inside the CLB."></p>
-
 **Why it helps.** A 20-LUT CLB is no faster than a 10-LUT one in 2D, because its crossbar grows
 with the square of its size. Split 10 + 10, each layer's crossbar stays small, and the bigger
 cluster means fewer trips between CLBs on the slowest paths.
@@ -28,8 +26,6 @@ cluster means fewer trips between CLBs on the slowest paths.
 - **New architecture-file features** in VTR (`layer_span`, `instance_layer_offsets`,
   `pin_layer`, `layer_crossing_delay`) with the packer, placer, router and timing analysis aware
   of them.
-
-<p align="center"><img src="docs/figures/speedup_vs_2d.svg" width="720" alt="Critical-path delay reduction over 2D: stacked CLBs 0.7%, split CLB on stacked's exact routing 5.6%, split CLB 7.1%."></p>
 
 ## Results
 
