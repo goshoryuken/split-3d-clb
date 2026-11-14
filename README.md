@@ -1,111 +1,210 @@
-# Verilog to Routing (VTR)
-[![Gitpod Ready-to-Code](https://img.shields.io/badge/Gitpod-Ready--to--Code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/verilog-to-routing/vtr-verilog-to-routing.git)
-[![Build Status](https://github.com/verilog-to-routing/vtr-verilog-to-routing/workflows/Test/badge.svg)](https://github.com/verilog-to-routing/vtr-verilog-to-routing/actions?query=workflow%3ATest) [![Documentation Status](https://readthedocs.org/projects/vtr/badge/?version=latest)](http://docs.verilogtorouting.org/en/latest/)
+# Split 3D CLB: one FPGA logic block across two layers
 
-## Introduction
-The Verilog-to-Routing (VTR) project is a world-wide collaborative effort to provide an open-source framework for conducting FPGA architecture and CAD research and development.
-The VTR design flow takes as input a Verilog description of a digital circuit, and a description of the target FPGA architecture.
-It then performs:
-  * Elaboration, Synthesis & Partial Mapping (PARMYS)
-  * Logic Optimization & Technology Mapping (ABC)
-  * Packing, Placement, Routing & Timing Analysis (VPR)
+**Ryu Tran** · Georgia Tech (SHARC Lab)
 
-to generate FPGA speed and area results.
-VTR includes a set of benchmark designs known to work with the design flow.
+3D FPGAs so far keep each logic block (CLB) whole and stack whole blocks on top of each other.
+This project splits **one** CLB across two bonded layers: a 20-LUT CLB with 10 LUTs and a small
+crossbar on each layer, and signals that cross between the layers *inside* the CLB. To make that
+possible, I extended **VTR/VPR**, **OpenFPGA** and **LaZagna** so that a CLB can span layers, with
+each LUT and each pin on a chosen layer, then measured it against LaZagna's stacked 3D CLBs and a
+2D FPGA.
 
-VTR can also produce [FASM](https://fasm.readthedocs.io/en/latest/) to program some commercial FPGAs (via [Symbiflow](https://chipsalliance.org/announcement/2022/02/18/chips-alliance-forms-f4pga-workgroup-to-accelerate-adoption-of-open-source-fpga-tooling/))
+<p align="center"><img src="docs/figures/stacked_vs_split.svg" width="860" alt="LaZagna stacks a whole 10-LUT CLB on each layer, joined only through the routing; the split CLB is one 20-LUT CLB with 10 LUTs and its own crossbar on each layer, and crossings inside the CLB."></p>
 
-| Placement (carry-chains highlighted) | Critical Path |
-| ------------------------------------ | ------------- |
-| <img src="https://verilogtorouting.org/img/des90_placement_macros.gif" width="350"/> | <img src="https://verilogtorouting.org/img/des90_cpd.gif" width="350"/> |
+**Why it helps.** A 20-LUT CLB is no faster than a 10-LUT one in 2D, because its crossbar grows
+with the square of its size. Split 10 + 10, each layer's crossbar stays small, and the bigger
+cluster means fewer trips between CLBs on the slowest paths.
 
-| Logical Connections | Routing Utilziation |
-| ------------------- | ------------------- |
-| <img src="https://verilogtorouting.org/img/des90_nets.gif" width="350"/> | <img src="https://verilogtorouting.org/img/des90_routing_util.gif" width="350"/> |
+## Highlights
 
+- **7.1% lower critical-path delay than a 2D FPGA, and 6.4% lower than LaZagna's stacked 3D CLBs**
+  on 7 Koios deep-learning designs with RAM and DSP blocks (10 seeds each, sky130 delays).
+- **The gain comes from the CLB.** On identical 3D routing, the split CLB alone is 5% faster than
+  stacked; 3D routing alone (2D to stacked) gives under 1%.
+- **Holds with the crossing delay measured in layout** (1.5-2.2x the SPICE value): 3.6-5.6% faster
+  than stacked.
+- **Real hardware:** the split CLB's generated Verilog is laid out in sky130 with 0 DRC errors and
+  passes gate-level equivalence against the original CLB.
+- **New architecture-file features** in VTR (`layer_span`, `instance_layer_offsets`,
+  `pin_layer`, `layer_crossing_delay`) with the packer, placer, router and timing analysis aware
+  of them.
 
-## Documentation
-VTR's [full documentation](https://docs.verilogtorouting.org) includes tutorials, descriptions of the VTR design flow, and tool options.
+<p align="center"><img src="docs/figures/speedup_vs_2d.svg" width="720" alt="Critical-path delay reduction over 2D: stacked CLBs 0.7%, split CLB on stacked's exact routing 5.6%, split CLB 7.1%."></p>
 
-Also check out our [additional support resources](SUPPORT.md).
+## Results
 
-## License
-Generally most code is under MIT license, with the exception of ABC which is distributed under its own (permissive) terms.
-See the [full license](LICENSE.md) for details.
+Every number below comes from a results file named next to it. Ratios are critical-path delay
+(CPD) of one fabric over another, geometric mean over designs; **lower is faster**. Koios runs:
+7 designs, 10 seeds each, RAM/DSP in per-layer columns. "Ideal clocks" assumes no clock skew;
+"routed clocks" also sends the clock over the general routing.
 
-## How to Cite
-The following paper may be used as a general citation for VTR:
+### Split CLB vs LaZagna's stacked CLBs
 
-K. E. Murray, O. Petelin, S. Zhong, J. M. Wang, M. ElDafrawy, J.-P. Legault, E. Sha, A. G. Graham, J. Wu, M. J. P. Walker, H. Zeng, P. Patros, J. Luu, K. B. Kent and V. Betz "VTR 8: High Performance CAD and Customizable FPGA Architecture Modelling", ACM TRETS, 2020.
+| Comparison | Ideal clocks | Routed clocks | File |
+|---|---|---|---|
+| Split over stacked | **0.936**, faster on 7/7 | **0.944**, 5/7 | [ideal_table.txt](prototype/lazagna/hardblocks/results/seeds10/ideal_table.txt), [route_table.txt](prototype/lazagna/hardblocks/results/seeds10/route_table.txt) |
+| Ablation: same routing as stacked, only the CLB changes | **0.950**, 6/7 | **0.968**, 4/6 | [ablation_table.txt](prototype/lazagna/hardblocks/results/seeds10/ablation/ablation_table.txt) |
+| In-CLB crossing at the layout's 504 ps (SPICE: 339 ps) | 0.944, 7/7 | 0.949, 4/6 | [layoutx_table.txt](prototype/lazagna/hardblocks/results/seeds10/layoutx/layoutx_table.txt) |
+| In-CLB crossing at the layout's 760 ps | 0.964, 5/6 | 0.964, 5/6 | same |
 
-Bibtex:
+"4/6" or "5/6": one run of 70 did not route, and that design is left out of the ratio.
+
+### Against a 2D FPGA (10-LUT CLBs, the fastest 2D size with these delays)
+
+| Fabric over 2D | Ideal clocks | Routed clocks | Min. tracks per layer |
+|---|---|---|---|
+| Stacked CLBs (3D routing only) | 0.993, 5/7 | 0.976, 5/7 | 0.789 |
+| Split CLB | **0.929**, 6/7 | **0.921**, 6/7 | 1.042 |
+
+Both 3D fabrics use 0.509 of the 2D footprint and 1.018 of its die area (grid cells times layers).
+Files: [ideal_table.txt](prototype/lazagna/hardblocks/results/seeds10/ideal_table.txt), [route_table.txt](prototype/lazagna/hardblocks/results/seeds10/route_table.txt).
+
+### Other benchmarks (split over stacked, 10 seeds)
+
+| Benchmarks | sky130 | 7 nm (ASAP7) |
+|---|---|---|
+| 7 bigger VTR designs | 0.971, 4/7 | 0.963, 6/7 |
+| 16 small MCNC designs | 1.008 | 0.999 |
+
+File: [SPICE_RESULTS.md](prototype/lazagna/spice/SPICE_RESULTS.md). Small designs gain nothing.
+
+### Layout
+
+- Area as laid out (own-layer pins, 66 tracks): 1.036 of 2D's silicon per LUT and 0.518 of its
+  footprint per LUT ([tile_results_relaxed_tracks.txt](prototype/lazagna/pnr/tile_results_relaxed_tracks.txt)).
+- Gate-level equivalence: random inputs compared with the original CLB every cycle, and cutting a
+  used layer crossing makes it fail ([direct_crossing_results.txt](prototype/lazagna/pnr/direct_crossing_results.txt), [ff_test/](prototype/lazagna/ff_test)).
+
+## What I built
+
+### Architecture file
+
+```xml
+<tile name="clb" layer_span="2">                            <!-- the CLB occupies 2 layers -->
+<loc side="left" pin_layer="1">...</loc>                    <!-- pins on the upper layer -->
+<loc side="left" pin_layer="0" layer_offset="1">...</loc>   <!-- pins that also reach the layer above -->
+<pb_type name="fle" num_pb="20"
+         instance_layer_offsets="0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1">  <!-- layer of each LUT -->
+<complete name="crossbar0" input="clb.I0 fle[19:0].out" output="fle[9:0].in"
+          layer_crossing_delay="339.23e-12">                <!-- delay per layer crossed -->
+<direct ... layer_offset="1" placement_macro="false"/>      <!-- a direct link to another layer -->
 ```
-@article{vtr8,
-  title={VTR 8: High Performance CAD and Customizable FPGA Architecture Modelling},
-  author={Murray, Kevin E. and Petelin, Oleg and Zhong, Sheng and Wang, Jai Min and ElDafrawy, Mohamed and Legault, Jean-Philippe and Sha, Eugene and Graham, Aaron G. and Wu, Jean and Walker, Matthew J. P. and Zeng, Hanqing and Patros, Panagiotis and Luu, Jason and Kent, Kenneth B. and Betz, Vaughn},
-  journal={ACM Trans. Reconfigurable Technol. Syst.},
-  year={2020}
-}
+
+Each change stays in the section of the architecture file whose job it is:
+
+| Section | What it describes | What changed |
+|---|---|---|
+| `<layout>` | where each block sits on the grid | nothing new: the cell above a spanning CLB is left `EMPTY`, and VPR reserves it |
+| `<models>` | the primitives' interfaces (for packing) | nothing: LUTs, flip-flops, RAM and DSP are unchanged |
+| `<tiles>` | each block's size and pins (for routing) | `layer_span` (next to the existing `width`/`height`), `pin_layer` on `<loc>` |
+| `<complexblocklist>` | what is inside a block and its timing | `instance_layer_offsets`, `layer_crossing_delay`, one crossbar per layer |
+| `<directlist>` | fixed links between blocks | `layer_offset`, `placement_macro` |
+| `<device>`, `<segmentlist>`, `<switchlist>` | routing and its timing | no new attributes |
+
+Offsets are relative to the parent block, so a block keeps its internal layout wherever it is
+reused. VPR never stores absolute layers in the shared CLB graph; it adds the placed CLB's anchor
+layer when needed.
+
+### Tools
+
+Full list with every function: [TECHNICAL_MAP.md](prototype/lazagna/TECHNICAL_MAP.md), section 1.
+
+- **VTR/VPR** (this repository, on top of VTR `5abd3acaa`, the version LaZagna pins): new
+  [`pb_type_layers.cpp`](libs/libarchfpga/src/pb_type_layers.cpp) (each LUT's layer, span checks,
+  crossing delays) and [`layer_report.cpp`](vpr/src/base/layer_report.cpp) (per-layer report after
+  routing), two new test files, and changes across architecture reading, the device grid,
+  placement, the routing graph (each pin on its own layer), the router lookahead and the placement
+  delay model. Also available as patches in [`prototype/lazagna/`](prototype/lazagna).
+- **OpenFPGA** ([openfpga-lazagna.patch](prototype/lazagna/openfpga-lazagna.patch), 21 files):
+  labels every LUT, crossbar mux, configuration bit and wire with its layer in the generated Verilog.
+- **LaZagna** ([lazagna-3d-clb-branch.patch](prototype/lazagna/lazagna-3d-clb-branch.patch)): a
+  `clb_3d: split_layers: true` setup option, and `split_clb_layers.py`, which cuts each CLB's
+  Verilog into one module per layer.
+- **Experiment flow** ([prototype/lazagna/](prototype/lazagna)): `compare_2d_3d.py` (builds each
+  fabric's architecture, runs VPR per design and seed), `compare_configs.py` (ratios),
+  `spice/make_spice.py` (transistor-level delays in Spectre, sky130 and ASAP7), `pnr/` (layout and
+  timing), `ff_test/` (hardware equivalence checks), `hardblocks.py` (RAM/DSP placement study).
+
+## How the numbers are made
+
+1. **SPICE.** `spice/make_spice.py` builds transistor-level copies of OpenFPGA's circuits (muxes,
+   LUT, buffers, RC wires, and the layer crossing: driver, bond, receiver) for each fabric and
+   times them in Spectre. Output: one delay per part.
+2. **Architecture and VPR.** `compare_2d_3d.py` writes those delays into each fabric's
+   architecture file, picks the smallest square grid that fits the design (LUTs at 70%, RAM/DSP
+   at 80%, the same rule for every fabric), finds the minimum tracks, then routes at 1.3x that.
+3. **Results.** VPR reports each run's critical path; `compare_configs.py` turns the CSVs into
+   ratios.
+
+Recompute the headline from the committed CSVs:
+
+```bash
+cd prototype/lazagna
+S=hardblocks/results/seeds10
+python3 compare_configs.py $S/ideal/stack/results_columns.csv:3d split=$S/ideal/split/results_columns.csv:3d
+python3 compare_configs.py $S/ideal/stack/results_columns.csv:3d ablation=$S/ablation/strict_ideal/results_columns.csv:3d
 ```
 
-## Download
-For most users of VTR (rather than active developers) you should download the [latest official VTR release](https://verilogtorouting.org/download), which has been fully regression tested.
+## Build
 
-## Building
-On unix-like systems run `make` from the root VTR directory.
+Tested on macOS (Apple Silicon, Homebrew `cmake bison flex openssl@3 python`) and Linux:
 
-For more details see the [building instructions](BUILDING.md).
+```bash
+git submodule update --init libs/EXTERNAL/libcatch2
+cmake -S prototype -B build/vpr -DCMAKE_BUILD_TYPE=Release -DPROTOTYPE_BUILD_VPR=ON \
+      -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
+make -C build/vpr -j6 vpr
+```
 
-#### Docker
-We provide a Dockerfile that sets up all the necessary packages for VTR to run.
-For more details see [here](dev/DOCKER_DEPLOY.md).
+On Linux, drop the Homebrew path. To rerun a sweep, see "Commands" in
+[HARDBLOCKS.md](prototype/lazagna/HARDBLOCKS.md); the `run_*.sh` scripts next to each result record
+exactly how it was made. SPICE and the layout flow need Cadence Spectre/Innovus and the sky130
+PDK, which are not included.
 
-## Mailing Lists
-If you have questions, or want to keep up-to-date with VTR, consider joining our mailing lists:
+## Limitations
 
-[VTR-Announce](https://groups.google.com/forum/#!forum/vtr-announce): VTR release announcements (low traffic)
+- **The gain depends on the design.** In the ablation, conv_layer is 16% faster than stacked
+  and two designs are slightly slower; without conv_layer the CLB-only gain is 3% (ideal clocks)
+  and 1% (routed). Small designs gain nothing.
+- **These are VPR timing results** with delays from SPICE models of OpenFPGA's circuits, not
+  measurements of a fabricated chip. RAM and DSP delays are estimated.
+- **The split CLB needs cheap layer crossings**: its slowest paths cross layers about 3.0 times
+  versus 1.1 for stacked, so the edge holds while a crossing costs about a quarter to a third of a
+  routing hop.
+- With RAM/DSP, the split fabric needs 4.2% more tracks per layer than 2D.
+- A 40-LUT CLB over 4 layers loses; this works for 2 layers.
 
-[VTR-Users](https://groups.google.com/forum/#!forum/vtr-users): Discussions about using VTR
+## Repository layout
 
-[VTR-Devel](https://groups.google.com/forum/#!forum/vtr-devel): Discussions about VTR development
+| Path | Contents |
+|---|---|
+| [`prototype/lazagna/`](prototype/lazagna) | Experiment scripts, patches, results and technical docs |
+| [`prototype/lazagna/hardblocks/results/seeds10/`](prototype/lazagna/hardblocks/results/seeds10) | Koios results: headline, ablation, layout crossing, bond pitch |
+| [`prototype/lazagna/spice/`](prototype/lazagna/spice) | SPICE generator, delay sets and SPICE results |
+| [`prototype/lazagna/pnr/`](prototype/lazagna/pnr) | Layout flow scripts and layout results |
+| [`prototype/lazagna/ff_test/`](prototype/lazagna/ff_test) | Hardware equivalence checks |
+| `prototype/` (other files) | The first prototype (below) |
+| `libs/`, `vpr/` | VTR with the multi-layer CLB changes |
+| [`VTR_README.md`](VTR_README.md) | VTR's own README |
 
-[VTR-Commits](https://groups.google.com/forum/#!forum/vtr-commits): VTR revision control commits
+Further reading: [TECHNICAL_MAP.md](prototype/lazagna/TECHNICAL_MAP.md) (every code change and
+which file backs each number), [HARDBLOCKS.md](prototype/lazagna/HARDBLOCKS.md) (the Koios study
+with RAM/DSP), [SPICE_RESULTS.md](prototype/lazagna/spice/SPICE_RESULTS.md),
+[LITERATURE.md](prototype/lazagna/LITERATURE.md) (related work).
 
-## Development
-This is the development trunk for the Verilog-to-Routing project.
-Unlike the nicely packaged releases that we create, you are working with code in a constant state of flux.
-You should expect that the tools are not always stable and that more work is needed to get the flow to run.
+## First prototype
 
-For new developers, please follow the [quickstart guide](https://docs.verilogtorouting.org/en/latest/quickstart/).
+The idea was first built on a 3D VTR fork: one 10-LUT CLB with 5 LUTs on each layer, packed,
+placed, routed and timed by VPR, with OpenFPGA tagging each LUT's layer in the generated Verilog
+and the configured fabric checked in simulation. Its files are in `prototype/`:
+`physical_split_fle.xml` and `openfpga_split_fle.xml` (architectures), the `ten_luts*` and
+`asymmetric_ten_luts*` test circuits, and `test_physical_layers.py` (24-case VPR suite),
+`test_mapped_rtl.py` and `run_openfpga_demo.py` (post-route and configured-fabric simulation).
 
-We follow a feature branch flow, where you create a new branch for new code, test it, measure its Quality of Results, and eventually produce a pull request for review by other developers. Pull requests that meet all the quality and review criteria are then merged into the master branch by a developer with the authority to do so.
+## Built on
 
-In addition to measuring QoR and functionality automatically on pull requests, we do periodic automated testing of the master using BuildBot, and the results can be viewed below to track QoR and stability.
-* [Trunk Status](http://builds.verilogtorouting.org:8080/waterfall)
-* [QoR Tracking](http://builds.verilogtorouting.org:8080/)
-
-*IMPORTANT*: A broken build must be fixed at top priority. You break the build if your commit breaks any of the automated regression tests.
-
-For additional information see the [developer README](README.developers.md).
-
-### Contributing to VTR
-If you'd like to contribute to VTR see our [Contribution Guidelines](CONTRIBUTING.md).
-
-## Contributors
-*Please keep this up-to-date*
-
-Professors: Kenneth Kent, Vaughn Betz, Jonathan Rose, Jason Anderson, Peter Jamieson
-
-Research Assistants: Aaron Graham
-
-
-Graduate Students: Kevin Murray, Jason Luu, Oleg Petelin, Xifian Tang, Mohamed Elgammal, Mohamed Eldafrawy, Jeffrey Goeders, Chi Wai Yu, Andrew Somerville, Ian Kuon, Alexander Marquardt, Andy Ye, Wei Mark Fang, Tim Liu, Charles Chiasson, Panagiotis (Panos) Patros, Jean-Philippe Legault, Aaron Graham, Nasrin Eshraghi Ivari, Maria Patrou, Scott Young, Sarah Khalid, Seyed Alireza Damghani, Harpreet Kaur, Daniel Khadivi, Alireza Azadi
-
-
-Summer Students: Opal Densmore, Ted Campbell, Cong Wang, Peter Milankov, Scott Whitty, Michael Wainberg, Suya Liu, Miad Nasr, Nooruddin Ahmed, Thien Yu, Long Yu Wang, Matthew J.P. Walker, Amer Hesson, Sheng Zhong, Hanqing Zeng, Vidya Sankaranarayanan, Jia Min Wang, Eugene Sha, Jean-Philippe Legault, Richard Ren, Dingyu Yang, Alexandrea Demmings, Hillary Soontiens, Julie Brown, Bill Hu, David Baines, Mahshad Farahani, Helen Dai, Daniel Zhai
-
-Companies: Intel, Huawei, Lattice, Altera Corporation, Texas Instruments, Google, Antmicro
-
-Funding Agencies: NSERC, Semiconductor Research Corporation
-
-
+[VTR](https://github.com/verilog-to-routing/vtr-verilog-to-routing),
+[OpenFPGA](https://github.com/lnis-uofu/OpenFPGA) and
+[LaZagna](https://github.com/sharc-lab/LaZagna) (Youssef, Yang and Hao, ICCAD 2025); benchmarks
+from Koios, VTR and MCNC; the SkyWater sky130 and ASAP7 process kits. Their licenses and
+generated-file headers are kept; VTR's license is in [LICENSE.md](LICENSE.md).

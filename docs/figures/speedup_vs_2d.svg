@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" width="760" height="250" font-family="Helvetica, Arial, sans-serif">
+  <rect width="760" height="250" fill="#ffffff"/>
+  <text x="24" y="32" font-size="17" font-weight="bold" fill="#111827">Critical-path delay reduction over a 2D FPGA</text>
+  <text x="24" y="52" font-size="12" fill="#4b5563">7 Koios designs with RAM/DSP, 10 seeds each, sky130 SPICE delays, ideal clocks. Longer is faster.</text>
+
+  <!-- axis: 0% at x=300, 8% at x=700 (50 px per %) -->
+  <g stroke="#e5e7eb" stroke-width="1">
+    <line x1="300" y1="68" x2="300" y2="208"/><line x1="400" y1="68" x2="400" y2="208"/>
+    <line x1="500" y1="68" x2="500" y2="208"/><line x1="600" y1="68" x2="600" y2="208"/><line x1="700" y1="68" x2="700" y2="208"/>
+  </g>
+  <g font-size="11" fill="#6b7280" text-anchor="middle">
+    <text x="300" y="224">0%</text><text x="400" y="224">2%</text><text x="500" y="224">4%</text><text x="600" y="224">6%</text><text x="700" y="224">8%</text>
+  </g>
+
+  <text x="290" y="95" font-size="13" fill="#111827" text-anchor="end">LaZagna stacked CLBs (3D routing only)</text>
+  <rect x="300" y="80" width="35" height="22" fill="#818cf8"/>
+  <text x="341" y="96" font-size="13" fill="#111827">0.7%</text>
+
+  <text x="290" y="141" font-size="13" fill="#111827" text-anchor="end">Split CLB on stacked's exact routing</text>
+  <rect x="300" y="126" width="280" height="22" fill="#34d399"/>
+  <text x="586" y="142" font-size="13" fill="#111827">5.6%</text>
+
+  <text x="290" y="187" font-size="13" fill="#111827" text-anchor="end">Split CLB (own-layer pins)</text>
+  <rect x="300" y="172" width="355" height="22" fill="#059669"/>
+  <text x="661" y="188" font-size="13" font-weight="bold" fill="#111827">7.1%</text>
+
+  <text x="24" y="242" font-size="11" fill="#6b7280">CPD over 2D: stacked 0.993, split on stacked's routing 0.944, split 0.929 (ideal_table.txt, ablation_table.txt).</text>
+</svg>
