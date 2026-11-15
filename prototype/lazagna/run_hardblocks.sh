@@ -24,8 +24,8 @@ set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${1:?output dir}
 mkdir -p "$OUT/split" "$OUT/stack"
-VPR=${VPR:-$HERE/../../../build/lazagna-vtr/build/vpr/vpr/vpr}
-[ -x "$VPR" ] || VPR=~/sharc-lab/vtr-3d-prototype/build/lazagna-vtr/build/vpr/vpr/vpr
+VPR=${VPR:-$HERE/../../build/vpr/vpr/vpr}   # the README build
+[ -x "$VPR" ] || { echo "no VPR at $VPR: build it (README, Build) or set VPR"; exit 1; }
 if [ -n "$TIMED" ]; then export VPR_REAL=$VPR; VPR=$HERE/hardblocks/vpr_timed.sh; fi
 BENCH=${BENCH:?dir of koios blifs}
 J=$HERE/spice/delays_tt_all.json

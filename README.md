@@ -143,19 +143,46 @@ python3 compare_configs.py $S/ideal/stack/results_columns.csv:3d ablation=$S/abl
 
 ## Build
 
-Tested on macOS (Apple Silicon, Homebrew `cmake bison flex openssl@3 python`) and Linux:
+Tested from a fresh clone on macOS (Apple Silicon, Homebrew `cmake bison flex openssl@3 python`):
 
 ```bash
 git submodule update --init libs/EXTERNAL/libcatch2
 cmake -S prototype -B build/vpr -DCMAKE_BUILD_TYPE=Release -DPROTOTYPE_BUILD_VPR=ON \
-      -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3
+      -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3 \
+      -DBISON_EXECUTABLE=/opt/homebrew/opt/bison/bin/bison \
+      -DFLEX_EXECUTABLE=/opt/homebrew/opt/flex/bin/flex \
+      -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 make -C build/vpr -j6 vpr
 ```
 
-On Linux, drop the Homebrew path. To rerun a sweep, see "Commands" in
-[HARDBLOCKS.md](prototype/lazagna/HARDBLOCKS.md); the `run_*.sh` scripts next to each result record
-exactly how it was made. SPICE and the layout flow need Cadence Spectre/Innovus and the sky130
-PDK, which are not included.
+On macOS the Homebrew bison and flex are needed (the system bison is too old). On Linux, drop the four Homebrew paths. The experiment scripts need only Python 3 (standard library).
+
+## Reproduce
+
+After the build, from the repository root:
+
+```bash
+QUICK=1 prototype/lazagna/reproduce_koios.sh out-quick   # spmv, seed 1: a few minutes
+prototype/lazagna/reproduce_koios.sh out                 # all 7 designs x 10 seeds
+ABLATION=1 prototype/lazagna/reproduce_koios.sh out      # also the split CLB on stacked's routing
+```
+
+The script runs 2D, stacked and split fabrics with routed clocks, then ideal clocks at the same
+track counts, and prints the same ratios as
+[ideal_table.txt](prototype/lazagna/hardblocks/results/seeds10/ideal_table.txt). `JOBS` sets the
+parallel VPR runs per 3D fabric (default 4); each run needs about 1.5 GB of memory, and the full
+sweep (about 420 VPR runs) took about 1 h 20 min with 12 runs at a time on an Apple Silicon Mac.
+
+- **Netlists:** the 7 Koios designs are in
+  [`hardblocks/koios/`](prototype/lazagna/hardblocks/koios), synthesized from VTR's Koios Verilog
+  with [`synth_koios.sh`](prototype/lazagna/hardblocks/synth_koios.sh) (regenerating them needs
+  Yosys).
+- **Delays:** the SPICE delay sets are committed
+  ([`spice/delays_tt_all.json`](prototype/lazagna/spice/delays_tt_all.json)), so reruns need no
+  SPICE. Re-deriving them needs Cadence Spectre and the sky130 PDK; the layout needs Innovus and a
+  sky130 RTL-to-GDS flow. Neither is included.
+- **Records:** the `run_*.sh` scripts next to each result record how it was made (with the folders
+  they ran in).
 
 ## Limitations
 
