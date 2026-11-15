@@ -29,6 +29,8 @@ cluster means fewer trips between CLBs on the slowest paths.
 
 ## Results
 
+<p align="center"><img src="docs/cpd_reduction_vs_2d.png" width="820" alt="Critical-path delay reduction vs. a 2D FPGA per Koios design for stacked CLBs, the split CLB on stacked's routing, and the split CLB; geomean 0.7%, 5.6% and 7.0%."></p>
+
 Every number below comes from a results file named next to it. Ratios are critical-path delay
 (CPD) of one fabric over another, geometric mean over designs; **lower is faster**. Koios runs:
 7 designs, 10 seeds each, RAM/DSP in per-layer columns. "Ideal clocks" assumes no clock skew;
