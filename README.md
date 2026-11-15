@@ -2,7 +2,7 @@
 
 **Ryu Tran** · Georgia Tech (SHARC Lab)
 
-3D FPGAs so far keep each logic block (CLB) whole and stack whole blocks on top of each other.
+Published 3D FPGA architectures keep each logic block (CLB) whole and stack whole blocks on top of each other.
 This project splits **one** CLB across two bonded layers: a 20-LUT CLB with 10 LUTs and a small
 crossbar on each layer, and signals that cross between the layers *inside* the CLB. To make that
 possible, I extended **VTR/VPR**, **OpenFPGA** and **LaZagna** so that a CLB can span layers, with
@@ -23,13 +23,16 @@ cluster means fewer trips between CLBs on the slowest paths.
   than stacked.
 - **Real hardware:** the split CLB's generated Verilog is laid out in sky130 with 0 DRC errors and
   passes gate-level equivalence against the original CLB.
-- **New architecture-file features** in VTR (`layer_span`, `instance_layer_offsets`,
-  `pin_layer`, `layer_crossing_delay`) with the packer, placer, router and timing analysis aware
-  of them.
+- **VTR support for CLBs that span layers** (`layer_span`, `instance_layer_offsets`, `pin_layer`,
+  `layer_crossing_delay`), with crossings inside the CLB charged in timing, and OpenFPGA/LaZagna
+  generating one Verilog module per layer.
 
 ## Results
 
 <p align="center"><img src="docs/cpd_reduction_vs_2d.png" width="820" alt="Critical-path delay reduction vs. a 2D FPGA per Koios design for stacked CLBs, the split CLB on stacked's routing, and the split CLB; geomean 0.7%, 5.6% and 7.0%."></p>
+
+The chart averages each design's 10 runs with a geometric mean (split CLB 7.0%); the tables below
+use the plain average of each design's runs (7.1%).
 
 Every number below comes from a results file named next to it. Ratios are critical-path delay
 (CPD) of one fabric over another, geometric mean over designs; **lower is faster**. Koios runs:
