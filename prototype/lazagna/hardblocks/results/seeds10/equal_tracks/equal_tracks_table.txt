@@ -1,0 +1,20 @@
+Equal tracks: LaZagna-style stacked CLBs routed at exactly the split fabric's track count
+(2 x ceil(1.3 x the split's minimum width / 2), per design and seed), against the stacked fabric at
+its own 1.3x minimum (../route, ../ideal) and the split fabric. 7 Koios designs x 10 seeds, all
+140 runs routed. Made by run_equal_tracks.sh.
+
+== ideal clocks: stacked with the split's tracks, over stacked at its own tracks
+configuration                       geomean  faster on  per seed
+stacked_split_tracks                  0.994     6/7     0.990 0.957 1.013 0.975 1.008 0.980 1.009 0.986 1.009 1.019
+
+== ideal clocks: split over stacked at equal tracks
+configuration                       geomean  faster on  per seed
+split                                 0.941     7/7     0.951 0.949 0.931 0.935 0.925 0.961 0.939 0.976 0.937 0.910
+
+== route clocks: stacked with the split's tracks, over stacked at its own tracks
+configuration                       geomean  faster on  per seed
+stacked_split_tracks                  1.002     2/7     1.029 0.977 1.025 1.009 1.015 0.978 1.003 0.975 1.040 0.974
+
+== route clocks: split over stacked at equal tracks
+configuration                       geomean  faster on  per seed
+split                                 0.942     5/7     0.929 0.935 0.940 0.938 0.930 0.962 0.939 0.970 0.925 0.955

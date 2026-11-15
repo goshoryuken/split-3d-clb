@@ -19,6 +19,9 @@ cluster means fewer trips between CLBs on the slowest paths.
   on 7 Koios deep-learning designs with RAM and DSP blocks (10 seeds each, sky130 delays, ideal clocks).
 - **The gain comes from the CLB.** On identical 3D routing, the split CLB alone is 5% faster than
   stacked (3.2% with routed clocks); 3D routing alone (2D to stacked) gives 0.7% (2.4% routed).
+- **Not from extra routing.** The split fabric is routed with more tracks than stacked, but giving
+  stacked the same tracks doesn't speed it up (0.994x ideal, 1.002x routed), and at equal tracks the
+  split is still 5.9% faster (ideal clocks, 7/7 designs; 5.8% routed).
 - **Holds with the crossing delay measured in layout** (1.5-2.2x the SPICE value): 3.6-5.6% faster
   than stacked.
 - **Real hardware:** the split CLB's generated Verilog is laid out in sky130 with 0 DRC errors and
@@ -45,6 +48,7 @@ Every number below comes from a results file named next to it. Ratios are critic
 |---|---|---|---|
 | Split over stacked | **0.936**, faster on 7/7 | **0.944**, 5/7 | [ideal_table.txt](prototype/lazagna/hardblocks/results/seeds10/ideal_table.txt), [route_table.txt](prototype/lazagna/hardblocks/results/seeds10/route_table.txt) |
 | Ablation: same routing as stacked, only the CLB changes | **0.950**, 6/7 | **0.968**, 4/6 | [ablation_table.txt](prototype/lazagna/hardblocks/results/seeds10/ablation/ablation_table.txt) |
+| Equal tracks: stacked given the split's track count | **0.941**, 7/7 | **0.942**, 5/7 | [equal_tracks_table.txt](prototype/lazagna/hardblocks/results/seeds10/equal_tracks/equal_tracks_table.txt) |
 | In-CLB crossing at the layout's 504 ps (SPICE: 339 ps) | 0.944, 7/7 | 0.949, 4/6 | [layoutx_table.txt](prototype/lazagna/hardblocks/results/seeds10/layoutx/layoutx_table.txt) |
 | In-CLB crossing at the layout's 760 ps | 0.964, 5/6 | 0.964, 5/6 | same |
 
@@ -201,7 +205,8 @@ sweep (about 420 VPR runs) took about 1 h 20 min with 12 runs at a time on an Ap
 - **The split CLB's edge depends on the layer-crossing delay**: its slowest paths cross layers
   about 3.0 times versus 1.1 for stacked, so its edge over stacked shrinks as crossings inside the
   CLB get slower: 6.4% at the SPICE value (339 ps), 3.6% at the layout's 760 ps (ideal clocks).
-- With RAM/DSP, the split fabric needs 4.2% more tracks per layer than 2D.
+- With RAM/DSP, the split fabric needs 4.2% more tracks per layer than 2D and 32% more than
+  stacked. That is an area cost; it is not where the speed comes from (equal-track rerun above).
 - A 40-LUT CLB over 4 layers loses; this works for 2 layers.
 
 ## Repository layout
