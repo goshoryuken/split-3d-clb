@@ -16,9 +16,9 @@ cluster means fewer trips between CLBs on the slowest paths.
 ## Highlights
 
 - **7.1% lower critical-path delay than a 2D FPGA, and 6.4% lower than LaZagna's stacked 3D CLBs**
-  on 7 Koios deep-learning designs with RAM and DSP blocks (10 seeds each, sky130 delays).
+  on 7 Koios deep-learning designs with RAM and DSP blocks (10 seeds each, sky130 delays, ideal clocks).
 - **The gain comes from the CLB.** On identical 3D routing, the split CLB alone is 5% faster than
-  stacked; 3D routing alone (2D to stacked) gives under 1%.
+  stacked (3.2% with routed clocks); 3D routing alone (2D to stacked) gives 0.7% (2.4% routed).
 - **Holds with the crossing delay measured in layout** (1.5-2.2x the SPICE value): 3.6-5.6% faster
   than stacked.
 - **Real hardware:** the split CLB's generated Verilog is laid out in sky130 with 0 DRC errors and
@@ -194,13 +194,13 @@ sweep (about 420 VPR runs) took about 1 h 20 min with 12 runs at a time on an Ap
 ## Limitations
 
 - **The gain depends on the design.** In the ablation, conv_layer is 16% faster than stacked
-  and two designs are slightly slower; without conv_layer the CLB-only gain is 3% (ideal clocks)
+  and one design (two with routed clocks) is slightly slower; without conv_layer the CLB-only gain is 3% (ideal clocks)
   and 1% (routed). Small designs gain nothing.
 - **These are VPR timing results** with delays from SPICE models of OpenFPGA's circuits, not
   measurements of a fabricated chip. RAM and DSP delays are estimated.
-- **The split CLB needs cheap layer crossings**: its slowest paths cross layers about 3.0 times
-  versus 1.1 for stacked, so the edge holds while a crossing costs about a quarter to a third of a
-  routing hop.
+- **The split CLB's edge depends on the layer-crossing delay**: its slowest paths cross layers
+  about 3.0 times versus 1.1 for stacked, so its edge over stacked shrinks as crossings inside the
+  CLB get slower: 6.4% at the SPICE value (339 ps), 3.6% at the layout's 760 ps (ideal clocks).
 - With RAM/DSP, the split fabric needs 4.2% more tracks per layer than 2D.
 - A 40-LUT CLB over 4 layers loses; this works for 2 layers.
 
