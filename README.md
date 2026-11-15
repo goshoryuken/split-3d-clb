@@ -146,6 +146,8 @@ python3 compare_configs.py $S/ideal/stack/results_columns.csv:3d ablation=$S/abl
 Tested from a fresh clone on macOS (Apple Silicon, Homebrew `cmake bison flex openssl@3 python`):
 
 ```bash
+git clone https://github.com/goshoryuken/split-3d-clb.git
+cd split-3d-clb
 git submodule update --init libs/EXTERNAL/libcatch2
 cmake -S prototype -B build/vpr -DCMAKE_BUILD_TYPE=Release -DPROTOTYPE_BUILD_VPR=ON \
       -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3 \
