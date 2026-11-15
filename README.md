@@ -22,8 +22,9 @@ cluster means fewer trips between CLBs on the slowest paths.
 - **Not from extra routing.** The split fabric is routed with more tracks than stacked, but giving
   stacked the same tracks doesn't speed it up (0.994x ideal, 1.002x routed), and at equal tracks the
   split is still 5.9% faster (ideal clocks, 7/7 designs; 5.8% routed).
-- **Holds with the crossing delay measured in layout** (1.5-2.2x the SPICE value): 3.6-5.6% faster
-  than stacked.
+- **Shrinks when layer crossings are slower.** With every crossing (in the CLB and in the routing)
+  slowed to the layout's 1.5x and 2.2x the SPICE value, the split is 3.2% and 1.5% faster than
+  stacked (ideal clocks; 4.4% and 2.7% routed).
 - **Real hardware:** the split CLB's generated Verilog is laid out in sky130 with 0 DRC errors and
   passes gate-level equivalence against the original CLB.
 - **VTR support for CLBs that span layers** (`layer_span`, `instance_layer_offsets`, `pin_layer`,
@@ -49,10 +50,11 @@ Every number below comes from a results file named next to it. Ratios are critic
 | Split over stacked | **0.936**, faster on 7/7 | **0.944**, 5/7 | [ideal_table.txt](prototype/lazagna/hardblocks/results/seeds10/ideal_table.txt), [route_table.txt](prototype/lazagna/hardblocks/results/seeds10/route_table.txt) |
 | Ablation: same routing as stacked, only the CLB changes | **0.950**, 6/7 | **0.968**, 4/6 | [ablation_table.txt](prototype/lazagna/hardblocks/results/seeds10/ablation/ablation_table.txt) |
 | Equal tracks: stacked given the split's track count | **0.941**, 7/7 | **0.942**, 5/7 | [equal_tracks_table.txt](prototype/lazagna/hardblocks/results/seeds10/equal_tracks/equal_tracks_table.txt) |
-| In-CLB crossing at the layout's 504 ps (SPICE: 339 ps) | 0.944, 7/7 | 0.949, 4/6 | [layoutx_table.txt](prototype/lazagna/hardblocks/results/seeds10/layoutx/layoutx_table.txt) |
-| In-CLB crossing at the layout's 760 ps | 0.964, 5/6 | 0.964, 5/6 | same |
+| Every crossing 1.49x slower (in-CLB at the layout's 504 ps; SPICE: 339 ps) | 0.968, 5/7 | 0.956, 5/7 | [crossings_table.txt](prototype/lazagna/hardblocks/results/seeds10/crossings/crossings_table.txt) |
+| Every crossing 2.24x slower (in-CLB at the layout's 760 ps) | 0.985, 4/7 | 0.973, 4/7 | same |
 
-"4/6" or "5/6": one run of 70 did not route, and that design is left out of the ratio.
+"4/6" or "5/6": one run of 70 did not route, and that design is left out of the ratio. In the
+crossing rows a failed run drops only that seed (two runs at 1.49x, ideal clocks).
 
 ### Against a 2D FPGA (10-LUT CLBs, the fastest 2D size with these delays)
 
@@ -203,8 +205,9 @@ sweep (about 420 VPR runs) took about 1 h 20 min with 12 runs at a time on an Ap
 - **These are VPR timing results** with delays from SPICE models of OpenFPGA's circuits, not
   measurements of a fabricated chip. RAM and DSP delays are estimated.
 - **The split CLB's edge depends on the layer-crossing delay**: its slowest paths cross layers
-  about 3.0 times versus 1.1 for stacked, so its edge over stacked shrinks as crossings inside the
-  CLB get slower: 6.4% at the SPICE value (339 ps), 3.6% at the layout's 760 ps (ideal clocks).
+  about 3.0 times versus 1.1 for stacked, so its edge over stacked shrinks as crossings get slower.
+  With every crossing slowed together: 6.4% at the SPICE value, 3.2% at 1.49x and 1.5% at 2.24x
+  (ideal clocks); without conv_layer it is a tie at 2.24x.
 - With RAM/DSP, the split fabric needs 4.2% more tracks per layer than 2D and 32% more than
   stacked. That is an area cost; it is not where the speed comes from (equal-track rerun above).
 - A 40-LUT CLB over 4 layers loses; this works for 2 layers.
