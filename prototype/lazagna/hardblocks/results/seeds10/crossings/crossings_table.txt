@@ -1,19 +1,29 @@
-Split CLB over LaZagna's stacked CLBs with every layer crossing scaled by k: the split fabric's
-in-CLB and routing crossings and the stacked fabric's routing crossing (delays_crossings.json,
+Split CLB over LaZagna's stacked CLBs with every layer crossing scaled by k: the split fabric's in-
+CLB and routing crossings and the stacked fabric's routing crossing (delays_crossings.json,
 *_k<NNN>). k = 1.49 and 2.24 put the in-CLB crossing at the layout values (504 and 760 ps,
-pnr/direct_crossing_results.txt; SPICE 339 ps). The RAM/DSP-internal crossing stays at 339 ps in
-both fabrics. Koios, 7 designs x 10 seeds, columns, hard inputs both, relaxed 1.3x (run_crossings.sh,
-then crossings_table.py). Failed runs (1-2 overused nodes after VPR's 50 router iterations):
-k=1.49 ideal eltwise s10, robot_rl s1; k=1.75 ideal robot_rl s10; k=2.0 ideal spmv s6, conv s8;
-ablation k=2.24 routed eltwise s5, s9 (split side).
+pnr/direct_crossing_results.txt; SPICE 339 ps). From pnr/crossing_stages_results.txt, k = 1.36 puts
+it at SPICE with the layout's crossing-side loads (463 ps) and k = 1.62 at the layout with timing
+budgets on the bond ports (549 ps, pnr_local20u), the top of the range defended there (339-549 ps,
+so k from 1.0 to 1.62). k = 2.72 puts the routing crossing at LaZagna's default, 0.739 of an L4
+driver (SPICE: 0.272 of it); k = 3.0 goes past it. All 560 runs at 2.72 and 3.0 routed. These are
+all the crossings there are: RAM/DSP sit in single-layer columns, so they have no internal crossing
+(--hard-crossing-ps changes nothing). Koios, 7 designs x 10 seeds, columns, hard inputs both,
+relaxed 1.3x (run_crossings.sh, then crossings_table.py). Failed runs (1-2 overused nodes after
+VPR's 50 router iterations, or unroutable at the relaxed width): k=1.36 ideal spmv s6, routed
+attention s10; k=1.49 ideal eltwise s10, robot_rl s1; k=1.62 ideal eltwise s7; k=1.75 ideal robot_rl
+s10; k=2.0 ideal spmv s6, conv s8; ablation k=2.24 routed eltwise s5, s9 (split side).
 
 == ideal clocks: split over stacked, every crossing times k
                        geomean  no conv  faster  drop design seed sd  per design (seeds used, if fewer than 10)
 k = 1.00 (SPICE)         0.936    0.953    7/7    0.936 (7)   0.017  attent 0.969 bwave 0.988 conv 0.838 eltwis 0.975 robot 0.943 spmv 0.926 tpu 0.920
+k = 1.36                 0.957    0.972    6/7    0.958 (6)   0.013  attent 0.950 bwave 0.993 conv 0.868 eltwis 1.014 robot 0.961 spmv 0.947[9] tpu 0.972
 k = 1.49                 0.968    0.981    5/7    0.954 (5)   0.017  attent 0.978 bwave 1.001 conv 0.893 eltwis 1.049[9] robot 0.960[9] spmv 0.939 tpu 0.965
+k = 1.62                 0.964    0.978    5/7    0.955 (6)   0.022  attent 0.980 bwave 1.001 conv 0.880 eltwis 1.019[9] robot 0.964 spmv 0.947 tpu 0.962
 k = 1.75                 0.968    0.982    5/7    0.969 (6)   0.018  attent 0.987 bwave 1.000 conv 0.885 eltwis 1.044 robot 0.960[9] spmv 0.947 tpu 0.958
 k = 2.00                 0.971    0.991    5/7    1.001 (5)   0.020  attent 0.986 bwave 1.024 conv 0.860[9] eltwis 1.050 robot 0.987 spmv 0.942[9] tpu 0.959
 k = 2.24                 0.985    0.998    4/7    0.985 (7)   0.026  attent 0.994 bwave 1.004 conv 0.911 eltwis 1.056 robot 1.001 spmv 0.945 tpu 0.989
+k = 2.72                 1.008    1.019    2/7    1.008 (7)   0.013  attent 1.009 bwave 1.016 conv 0.946 eltwis 1.094 robot 1.007 spmv 0.972 tpu 1.020
+k = 3.00                 1.018    1.035    2/7    1.018 (7)   0.016  attent 1.015 bwave 1.046 conv 0.925 eltwis 1.098 robot 1.017 spmv 0.981 tpu 1.056
 -- ablation fabric (split CLB on stacked's routing) over stacked
 k = 1.00 (SPICE)         0.950    0.970    6/7    0.950 (7)   0.021  attent 0.989 bwave 0.994 conv 0.839 eltwis 1.006 robot 0.969 spmv 0.924 tpu 0.941
 k = 2.24                 0.992    1.008    3/7    0.992 (7)   0.028  attent 1.022 bwave 1.018 conv 0.904 eltwis 1.072 robot 1.006 spmv 0.940 tpu 0.993
@@ -21,11 +31,25 @@ k = 2.24                 0.992    1.008    3/7    0.992 (7)   0.028  attent 1.02
 == routed clocks: split over stacked, every crossing times k
                        geomean  no conv  faster  drop design seed sd  per design (seeds used, if fewer than 10)
 k = 1.00 (SPICE)         0.944    0.967    5/7    0.944 (7)   0.015  attent 0.953 bwave 1.004 conv 0.816 eltwis 1.018 robot 0.951 spmv 0.969 tpu 0.913
+k = 1.36                 0.962    0.983    5/7    0.957 (6)   0.019  attent 0.986[9] bwave 1.036 conv 0.844 eltwis 1.001 robot 0.961 spmv 0.963 tpu 0.952
 k = 1.49                 0.956    0.970    5/7    0.956 (7)   0.022  attent 0.969 bwave 1.017 conv 0.877 eltwis 1.003 robot 0.976 spmv 0.927 tpu 0.931
+k = 1.62                 0.957    0.977    5/7    0.957 (7)   0.032  attent 0.978 bwave 1.017 conv 0.845 eltwis 1.042 robot 0.974 spmv 0.966 tpu 0.892
 k = 1.75                 0.963    0.982    5/7    0.963 (7)   0.026  attent 0.968 bwave 1.003 conv 0.854 eltwis 1.032 robot 0.972 spmv 0.982 tpu 0.938
 k = 2.00                 0.987    1.001    4/7    0.987 (7)   0.018  attent 0.976 bwave 1.045 conv 0.907 eltwis 1.047 robot 0.990 spmv 0.947 tpu 1.004
 k = 2.24                 0.973    0.986    4/7    0.973 (7)   0.036  attent 0.989 bwave 1.026 conv 0.901 eltwis 1.037 robot 1.004 spmv 0.973 tpu 0.892
+k = 2.72                 1.008    1.017    3/7    1.008 (7)   0.022  attent 1.025 bwave 1.074 conv 0.952 eltwis 1.076 robot 1.002 spmv 0.974 tpu 0.958
+k = 3.00                 1.017    1.026    3/7    1.017 (7)   0.030  attent 1.035 bwave 1.063 conv 0.964 eltwis 1.060 robot 1.015 spmv 0.994 tpu 0.990
 -- ablation fabric (split CLB on stacked's routing) over stacked
 k = 1.00 (SPICE)         0.967    0.989    5/7    0.968 (6)   0.031  attent 0.978 bwave 1.032 conv 0.844 eltwis 1.039 robot 0.958[9] spmv 0.966 tpu 0.963
 k = 2.24                 0.990    1.005    2/7    0.981 (6)   0.027  attent 1.022 bwave 1.057 conv 0.906 eltwis 1.047[8] robot 1.026 spmv 1.001 tpu 0.886
 
+== Pin-path cost at 1.62x. The timing-budgeted layout (pnr_local20u) bought its 549 ps crossing
+partly with slower CLB input-pin paths (1.363 vs 1.284 ns, pnr/crossing_stages_results.txt). Here the
+split also pays that in full, +79 ps on xbar_pin (269.82 -> 348.82 ps; 3d20own_w100_k162pin,
+run_pinpath.sh, k162pin_*/split; stacked is unchanged, from k162_*/stack). All 140 runs routed.
+== ideal clocks: split over stacked, every crossing times 1.62, plus the pin-path cost
+                       geomean  no conv  faster  drop design seed sd  per design (seeds used, if fewer than 10)
+k = 1.62 + pins          0.982    1.002    5/7    0.982 (7)   0.020  attent 0.999 bwave 1.026 conv 0.874 eltwis 1.053 robot 0.972 spmv 0.987 tpu 0.976
+== routed clocks: split over stacked, every crossing times 1.62, plus the pin-path cost
+                       geomean  no conv  faster  drop design seed sd  per design (seeds used, if fewer than 10)
+k = 1.62 + pins          0.970    0.990    5/7    0.970 (7)   0.023  attent 0.982 bwave 1.049 conv 0.858 eltwis 1.048 robot 0.985 spmv 0.970 tpu 0.912

@@ -1,0 +1,171 @@
+# Why the laid-out in-CLB crossing (504-760 ps) is 1.5-2.2x SPICE's (339 ps), stage by stage.
+# Below: pnr/crossing_stages_layout.py's output, then the layout runs' log lines; every number here is from them.
+#
+# SPICE: spice/crossing_stages.py (run_crossing_stages.sh; output in spice/crossing_stages_3d20own_w100_tt
+#   .json and .txt) builds make_spice.py's feedback deck with a measure at every stage, then
+#   changes one thing at a time toward the layout's worst crossing path (pnr_local20c, FLE 0 to
+#   layer 1): its bond-net, receiver-net and FLE-net loads, its standard cells (from the kit's CDL),
+#   and the two buffers Innovus inserted. 'base' reproduces delays_tt.json's 339.23 within 0.1 ps.
+# Layout: pnr_local20c laid out again (run_crossing_fix.sh), one change each, same RTL, split,
+#   520 um core, mid-core pads and 2 ns clock (checked: split, RTL and constraints identical but
+#   for the change):
+#   s  each bond output port's set_load is what it drives on the other layer (bond_net_loads.py:
+#      16-103 fF over the 20 FLE outputs, mean 38) instead of 6 fF
+#   t  s, and no buffers inserted on the crossing nets in Innovus (0 found afterwards)
+#   u  s, and timing budgets on the bond ports instead of 0 ns input/output delay, so each layer
+#      laid out alone sees the crossing half-paths as critical as they are joined
+#   Each layout's paths were also split at the crossbar mux's first pin (retime_joined.sh, the
+#   mux_in column; the other columns are unchanged).
+#
+# What it shows:
+# - SPICE given the layout's cells, loads and inserted buffers gives 583 ps for the crossing, and
+#   0.84 of Tempus's stage delays on the same path: the two agree on where the time goes.
+# - The real bond loads (s) and blocking inserted buffers (t) leave the layout's crossing at
+#   0.735-0.750 ns: synthesis buffers instead (t), and the same-layer paths slow as much.
+# - The cause is the per-layer setup: with 0 ns delay on the bond ports, each layer sees only half
+#   of a crossing path, with the whole period to spare, so nothing on it is made fast. Budgets (u)
+#   cut the crossing to 0.549 ns (same layer unchanged at 0.932), most of it before the mux. They
+#   cost the CLB input pin paths: 1.363 vs 1.284 ns.
+# - The rest is the standard-cell flow, not the crossing circuit: SPICE runs 0.84 of Tempus on the
+#   same cells, the slower crossing nets also slow the standard-cell crossbar mux (+0.116 inside the
+#   mux in u; SPICE's mux model barely differs), and the spread over sending FLEs (0.344-0.732 in u)
+#   is placement.
+# Defended range for the in-CLB crossing: 339 ps (SPICE, the same model as every other VPR delay)
+# to 549 ps (the timing-driven layout, mean over 1,200 paths); SPICE with the layout's loads gives
+# 294-463 ps. VPR at 1.36x (463 ps) and 1.62x (549 ps): hardblocks/results/seeds10/crossings/.
+
+Laid-out in-CLB crossing (Tempus, sky130 standard cells, both layers joined, 2 ns clock).
+Mean of 1,200 paths each, FLE output mux out to crossbar mux out (compare_joined.py's paths);
+pins: mean of the 4,800 CLB input pin to crossbar mux out paths, for what a change costs elsewhere.
+
+layout                                                       same  cross    +ns  per sending FLE: min / median / max   pins
+driver + receiver (pnr_local20c)                            0.932  1.692  0.761  0.553 / 0.744 / 0.962               1.284
+bond as a via, driver after the FLE (pnr_local20g)          0.915  1.582  0.667  0.511 / 0.642 / 1.065               1.253
+bond as a via, driver inside the FLE (pnr_local20i, tap)    0.931  1.435  0.504  0.232 / 0.466 / 0.804               1.285
+driver + receiver, real bond loads (pnr_local20s)           0.933  1.668  0.735  0.470 / 0.748 / 0.937               1.260
+same, no inserted buffers on crossing nets (pnr_local20t)   1.051  1.801  0.750  0.266 / 0.780 / 1.040               1.307
+real bond loads + bond-port timing budgets (pnr_local20u)   0.932  1.481  0.549  0.344 / 0.549 / 0.732               1.363
+
+The same means split at the crossbar mux's first pin (mux_in, retime_joined.sh), ns:
+layout                                                            before the mux        inside the mux
+                                                               same  cross     +     same  cross     +
+driver + receiver (pnr_local20c)                           0.389  0.953  0.563   0.543  0.740  0.197
+driver + receiver, real bond loads (pnr_local20s)          0.388  0.941  0.553   0.545  0.727  0.182
+same, no inserted buffers on crossing nets (pnr_local20t)  0.481  1.043  0.562   0.570  0.758  0.188
+real bond loads + bond-port timing budgets (pnr_local20u)  0.389  0.822  0.433   0.543  0.659  0.116
+
+== driver + receiver (pnr_local20c): worst crossing path, crossing_path_local20_center.txt (FLE 0 to layer 1)
+stage                       cell           wire in   cell  drives pF  slew in
+FLE output driver           BUFX16_HS            0    171      0.627      43p
+inserted buffer (Innovus)   BUFX8_HS             7    212      0.165     271p
+crossing driver             INVX1               16     84      0.009     143p
+crossing driver             INVX2                0    223      0.074      63p
+receiver                    BUFX16_HS            2    242      0.386     277p
+inserted buffer (Innovus)   CLKBUFX2_HS         14    150      0.050     171p
+far crossbar mux input      INVX1                0                       102p
+sum, ps                                              1121
+
+== bond as a via, driver after the FLE (pnr_local20g): worst crossing path, crossing_path_local20_center_direct.txt (FLE 0 to layer 1)
+stage                       cell           wire in   cell  drives pF  slew in
+FLE output driver           BUFX16_HS            0    189      0.584      42p
+crossing driver             BUFX16             103    358      0.595     310p
+far crossbar mux input      INVX1               34                       313p
+sum, ps                                               684
+
+== bond as a via, driver inside the FLE (pnr_local20i, tap): worst crossing path, crossing_path_local20_center_tap.txt (FLE 0 to layer 1)
+stage                       cell           wire in   cell  drives pF  slew in
+inserted buffer (Innovus)   BUFX2                0    145      0.027      40p
+crossing driver             BUFX16               1    345      0.792     107p
+far crossbar mux input      INVX1               98                       441p
+sum, ps                                               589
+
+== driver + receiver, real bond loads (pnr_local20s): worst crossing path, crossing_path_local20_center_loaded.txt (FLE 0 to layer 1)
+stage                       cell           wire in   cell  drives pF  slew in
+FLE output driver           BUFX16_HS            0    230      0.804      29p
+crossing driver             INVX2              119     67      0.006     405p
+crossing driver             INVX2                0    116      0.028      73p
+receiver                    BUFX16_HS            1    210      0.462     110p
+far crossbar mux input      INVX1               58                       223p
+sum, ps                                               801
+
+== same, no inserted buffers on crossing nets (pnr_local20t): worst crossing path, crossing_path_local20_center_nobuf.txt (FLE 0 to layer 1)
+stage                       cell           wire in   cell  drives pF  slew in
+FLE output driver           BUFX8_HS             0    139      0.122      28p
+crossing driver             INVX4_HS             5     41      0.016     103p
+crossing driver             INVX4_HS             0     71      0.046      34p
+receiver                    CLKBUFX8_HS          2    131      0.077      71p
+other                       BUFX16_HS            0    174      0.320      58p
+far crossbar mux input      INVX1               19                       152p
+sum, ps                                               582
+
+== real bond loads + bond-port timing budgets (pnr_local20u): worst crossing path, crossing_path_local20_center_budget.txt (FLE 0 to layer 1)
+stage                       cell           wire in   cell  drives pF  slew in
+FLE output driver           BUFX16_HS            0    211      0.574      45p
+inserted buffer (Innovus)   BUFX8_HS            11    144      0.035     243p
+crossing driver             BUFX8_HS             0     91      0.019      48p
+receiver                    BUFX16_HS            0    147      0.204      31p
+far crossbar mux input      INVX1                6                        99p
+sum, ps                                               610
+
+== SPICE beside Tempus: the same worst crossing path, crossing_stages_3d20own_w100_tt.json
+SPICE 'cells+ins' has the layout's cells (INVX1 -> INVX2 driver, BUFX16_HS receiver and FLE
+driver, the two inserted buffers) and its loads; 'base' is make_spice.py's model (339 ps).
+Stages from the FLE output net to the far crossbar mux's input; ps, worst edge in SPICE.
+stage                                   Tempus  SPICE cells+ins  SPICE base
+inserted buffer before the driver          219              169           0
+crossing driver (INVX1 -> INVX2)           323              252         146
+pad wire, bond, receiver, its net,         408              376         229
+  and the inserted buffer after it
+sum                                        950              797         375
+SPICE over Tempus                                          0.84
+
+SPICE, one change at a time (crossing minus same layer, worst edges, as make_spice.py):
+variant       cross    same  crossing  what changed
+base          600.9   261.6     339.3  make_spice.py's model: bond net 43 fF, both crossbar nets 172 fF
+bondnet       612.2   261.6     350.6  the layout's bond net (74 fF), crossing driver sized for it
+farnet        724.5   261.6     462.8  + the receiver's net as laid out (436 fF), receiver sized for it
+ownnet        722.1   428.4     293.8  + the FLE output net as laid out (792 fF), FLE driver sized for it
+cells         773.9   471.7     302.2  the same loads with the layout's cells instead of sized chains
+cells+ins     991.9   409.0     582.9  + the two buffers Innovus inserted, with their loads
+
+== run_crossing_fix.sh output, key lines (INSERTED_ON_CROSSING_NETS counts the FE_* buffer and net
+names Innovus put on FLE output nets; each run's constraints differ from pnr_local20c's only in
+the per-port set_load lines, from bond_loads_local20c.csv, and in u the two bond-port delays)
+== run s (run_crossing_fix.sh RUNS=s)
+FLE outputs: 20 ports, load pF mean 0.0384, min 0.0163, max 0.1027
+pnr_local20s.log:INSERTED_ON_CROSSING_NETS layer 0: 238
+pnr_local20s.log:INSERTED_ON_CROSSING_NETS layer 1: 360
+pnr_local20s.log:JOIN_DONE
+pnr_local20s.log:feedback: crossing         1200    1.668    0.910  1.831     0.814     0.838
+pnr_local20s.log:feedback: same layer       1200    0.933    0.910  1.025     0.825     0.838
+pnr_local20s.log:pin: same layer            4800    1.260    1.231  1.023     0.816     0.832
+split: same as pnr_local20c
+layer 0 RTL: same as pnr_local20c
+layer 1 RTL: same as pnr_local20c
+FIX_DONE
+== run t (run_crossing_fix.sh RUNS=t)
+FLE outputs: 20 ports, load pF mean 0.0384, min 0.0163, max 0.1027
+pnr_local20t.log:INSERTED_ON_CROSSING_NETS layer 0: 0
+pnr_local20t.log:INSERTED_ON_CROSSING_NETS layer 1: 0
+pnr_local20t.log:JOIN_DONE
+pnr_local20t.log:feedback: crossing         1200    1.801    0.910  1.978     0.810     0.838
+pnr_local20t.log:feedback: same layer       1200    1.051    0.910  1.154     0.816     0.838
+pnr_local20t.log:pin: same layer            4800    1.307    1.231  1.062     0.808     0.832
+pnr_local20t/layer0.log:KEEP_CROSSING_NETS 40 of 40
+pnr_local20t/layer1.log:KEEP_CROSSING_NETS 40 of 40
+split: same as pnr_local20c
+layer 0 RTL: same as pnr_local20c
+layer 1 RTL: same as pnr_local20c
+FIX_DONE
+== run u (run_crossing_fix.sh RUNS=u)
+FLE outputs: 20 ports, load pF mean 0.0384, min 0.0163, max 0.1027
+pnr_local20u.log:INSERTED_ON_CROSSING_NETS layer 0: 378
+pnr_local20u.log:INSERTED_ON_CROSSING_NETS layer 1: 436
+pnr_local20u.log:JOIN_DONE
+pnr_local20u.log:feedback: crossing         1200    1.481    0.910  1.627     0.802     0.838
+pnr_local20u.log:feedback: same layer       1200    0.932    0.910  1.024     0.807     0.838
+pnr_local20u.log:pin: same layer            4800    1.363    1.231  1.108     0.796     0.832
+split: same as pnr_local20c
+layer 0 RTL: same as pnr_local20c
+layer 1 RTL: same as pnr_local20c
+FIX_DONE

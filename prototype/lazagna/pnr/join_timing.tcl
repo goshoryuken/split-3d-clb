@@ -19,9 +19,18 @@ proc last_arrival {points pattern} {
     return $arrival
 }
 
+proc first_arrival {points pattern} {
+    foreach {pin time} $points {
+        if {[string match $pattern $pin]} { return $time }
+    }
+    return ""
+}
+
+# mux_in (last column): arrival at the crossbar mux's first pin, so a path splits into the part
+# before the mux (the crossing, if any) and the mux itself.
 proc write_path {fh kind start mux path start_pattern} {
     if {[sizeof_collection $path] == 0} {
-        puts $fh "$kind,$start,$mux,,,,,"
+        puts $fh "$kind,$start,$mux,,,,,,"
         return
     }
     set points [points_of $path]
@@ -30,7 +39,8 @@ proc write_path {fh kind start mux path start_pattern} {
     puts $fh [join [list $kind $start $mux \
         [get_property $path launching_clock_open_edge_time] \
         [get_property $path drive_adjustment] \
-        $begin [last_arrival $points "$mux/*"] [get_property $path arrival]] ,]
+        $begin [last_arrival $points "$mux/*"] [get_property $path arrival] \
+        [first_arrival $points "$mux/*"]] ,]
 }
 
 set FLE logical_tile_clb_mode_default__fle
@@ -78,7 +88,7 @@ if {[catch {
     report_annotated_parasitics > parasitics.txt
 
     set fh [open clb_paths.csv w]
-    puts $fh "kind,start,mux,edge,drive,begin,mid,end"
+    puts $fh "kind,start,mux,edge,drive,begin,mid,end,mux_in"
     set pins [expr {4 * $fles}]
     set layer_pins [expr {$pins / 2}]
     for {set i 0} {$i < $pins} {incr i} {
@@ -104,6 +114,14 @@ if {[catch {
     }
     close $fh
     report_timing > worst.txt
+    # PNR_CROSSING_PATH: one crossing path stage by stage (the one in pnr/crossing_path_local20_*.txt,
+    # FLE 0 to mux_fle_15_in_2 with 20 FLEs, on the other layer), for crossing_stages_layout.py.
+    if {$two && [info exists ::env(PNR_CROSSING_PATH)]} {
+        if {[catch {
+            report_timing -from [get_pins [lindex $flops 0]/CK] -through [get_pins layer1/mux_fle_[expr {$fles - 5}]_in_2/out*] \
+                -net -format {instance cell arc fanout load slew delay arrival} > crossing_path.txt
+        } err]} { puts "CROSSING_PATH_FAILED: $err" }
+    }
     puts "JOIN_DONE"
 } failure]} {
     puts "JOIN_FAILED: $failure"

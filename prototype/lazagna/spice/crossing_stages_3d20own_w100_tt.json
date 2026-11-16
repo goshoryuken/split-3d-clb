@@ -1,0 +1,715 @@
+{
+ "fabric": "3d20own_w100",
+ "corner": "tt",
+ "bond_pf": 0.074,
+ "other_pf": 0.386,
+ "own_pf": 0.627,
+ "ins_pf": [
+  0.165,
+  0.05
+ ],
+ "variants": {
+  "base": {
+   "clb_crossing": 339.33,
+   "same": 261.59,
+   "cross": 600.92,
+   "worst_edge": 2,
+   "stages_worst_edge": {
+    "s_bond": 0.06,
+    "s_driver": 145.99,
+    "s_far_mux": 226.35,
+    "s_far_net": 38.44,
+    "s_own_mux": 224.22,
+    "s_own_net": 37.37,
+    "s_padwire": 1.1,
+    "s_receiver": 188.98
+   },
+   "edges": {
+    "1": {
+     "cross": 577.98,
+     "s_bond": 0.06,
+     "s_driver": 146.79,
+     "s_far_mux": 195.54,
+     "s_far_net": 44.37,
+     "s_own_mux": 191.72,
+     "s_own_net": 42.17,
+     "s_padwire": 1.11,
+     "s_receiver": 190.09,
+     "same": 233.9
+    },
+    "2": {
+     "cross": 600.92,
+     "s_bond": 0.06,
+     "s_driver": 145.99,
+     "s_far_mux": 226.35,
+     "s_far_net": 38.44,
+     "s_own_mux": 224.22,
+     "s_own_net": 37.37,
+     "s_padwire": 1.1,
+     "s_receiver": 188.98,
+     "same": 261.59
+    }
+   },
+   "loads": {
+    "fle_driver": {
+     "drives_fF": 240.25,
+     "model_fF": 240.25,
+     "sizes": [
+      1.0,
+      2.756,
+      7.594,
+      20.925,
+      57.662
+     ]
+    },
+    "s_own_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "opin_um": 302.8,
+     "opin_wire_fF": 51.89,
+     "opin_loads": 10,
+     "extra_fF": 0.0,
+     "total_fF": 171.73
+    },
+    "s_own_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    },
+    "s_driver": {
+     "sizes": [
+      1.0,
+      5.322
+     ],
+     "drives_fF": 42.82,
+     "model_fF": 42.82
+    },
+    "s_padwire": {
+     "um": 260.0,
+     "R_ohm": 40.73,
+     "wire_fF": 39.46
+    },
+    "s_bond": {
+     "via_stack_ohm": 11.7,
+     "bond_ohm": 0.5,
+     "pad_fF": 0.43,
+     "bond_fF": 1.0,
+     "extra_fF": 0.0,
+     "total_fF": 1.86
+    },
+    "s_receiver": {
+     "sizes": [
+      1.0,
+      3.265,
+      10.657,
+      34.791
+     ],
+     "drives_fF": 171.73,
+     "model_fF": 171.73
+    },
+    "s_far_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "extra_fF": 0.0,
+     "total_fF": 171.73
+    },
+    "s_far_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    }
+   }
+  },
+  "bondnet": {
+   "clb_crossing": 350.55,
+   "same": 261.63,
+   "cross": 612.18,
+   "worst_edge": 2,
+   "stages_worst_edge": {
+    "s_bond": 0.81,
+    "s_driver": 166.6,
+    "s_far_mux": 226.26,
+    "s_far_net": 38.42,
+    "s_own_mux": 224.28,
+    "s_own_net": 37.35,
+    "s_padwire": 2.37,
+    "s_receiver": 177.71
+   },
+   "edges": {
+    "1": {
+     "cross": 587.94,
+     "s_bond": 0.81,
+     "s_driver": 168.23,
+     "s_far_mux": 195.53,
+     "s_far_net": 44.38,
+     "s_own_mux": 191.71,
+     "s_own_net": 42.18,
+     "s_padwire": 2.4,
+     "s_receiver": 176.59,
+     "same": 233.88
+    },
+    "2": {
+     "cross": 612.18,
+     "s_bond": 0.81,
+     "s_driver": 166.6,
+     "s_far_mux": 226.26,
+     "s_far_net": 38.42,
+     "s_own_mux": 224.28,
+     "s_own_net": 37.35,
+     "s_padwire": 2.37,
+     "s_receiver": 177.71,
+     "same": 261.63
+    }
+   },
+   "loads": {
+    "fle_driver": {
+     "drives_fF": 240.25,
+     "model_fF": 240.25,
+     "sizes": [
+      1.0,
+      2.756,
+      7.594,
+      20.925,
+      57.662
+     ]
+    },
+    "s_own_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "opin_um": 302.8,
+     "opin_wire_fF": 51.89,
+     "opin_loads": 10,
+     "extra_fF": 0.0,
+     "total_fF": 171.73
+    },
+    "s_own_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    },
+    "s_driver": {
+     "sizes": [
+      1.0,
+      2.645,
+      6.996,
+      18.504
+     ],
+     "drives_fF": 74.0,
+     "model_fF": 42.82
+    },
+    "s_padwire": {
+     "um": 260.0,
+     "R_ohm": 40.73,
+     "wire_fF": 39.46
+    },
+    "s_bond": {
+     "via_stack_ohm": 11.7,
+     "bond_ohm": 0.5,
+     "pad_fF": 0.43,
+     "bond_fF": 1.0,
+     "extra_fF": 31.18,
+     "total_fF": 33.03
+    },
+    "s_receiver": {
+     "sizes": [
+      1.0,
+      3.265,
+      10.657,
+      34.791
+     ],
+     "drives_fF": 171.73,
+     "model_fF": 171.73
+    },
+    "s_far_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "extra_fF": 0.0,
+     "total_fF": 171.73
+    },
+    "s_far_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    }
+   }
+  },
+  "farnet": {
+   "clb_crossing": 462.81,
+   "same": 261.64,
+   "cross": 724.45,
+   "worst_edge": 2,
+   "stages_worst_edge": {
+    "s_bond": 0.8,
+    "s_driver": 166.61,
+    "s_far_mux": 257.04,
+    "s_far_net": 92.14,
+    "s_own_mux": 224.29,
+    "s_own_net": 37.35,
+    "s_padwire": 2.37,
+    "s_receiver": 205.49
+   },
+   "edges": {
+    "1": {
+     "cross": 696.96,
+     "s_bond": 0.81,
+     "s_driver": 168.23,
+     "s_far_mux": 222.58,
+     "s_far_net": 100.44,
+     "s_own_mux": 191.8,
+     "s_own_net": 42.18,
+     "s_padwire": 2.4,
+     "s_receiver": 202.5,
+     "same": 233.98
+    },
+    "2": {
+     "cross": 724.45,
+     "s_bond": 0.8,
+     "s_driver": 166.61,
+     "s_far_mux": 257.04,
+     "s_far_net": 92.14,
+     "s_own_mux": 224.29,
+     "s_own_net": 37.35,
+     "s_padwire": 2.37,
+     "s_receiver": 205.49,
+     "same": 261.64
+    }
+   },
+   "loads": {
+    "fle_driver": {
+     "drives_fF": 240.25,
+     "model_fF": 240.25,
+     "sizes": [
+      1.0,
+      2.756,
+      7.594,
+      20.925,
+      57.662
+     ]
+    },
+    "s_own_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "opin_um": 302.8,
+     "opin_wire_fF": 51.89,
+     "opin_loads": 10,
+     "extra_fF": 0.0,
+     "total_fF": 171.73
+    },
+    "s_own_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    },
+    "s_driver": {
+     "sizes": [
+      1.0,
+      2.645,
+      6.996,
+      18.504
+     ],
+     "drives_fF": 74.0,
+     "model_fF": 42.82
+    },
+    "s_padwire": {
+     "um": 260.0,
+     "R_ohm": 40.73,
+     "wire_fF": 39.46
+    },
+    "s_bond": {
+     "via_stack_ohm": 11.7,
+     "bond_ohm": 0.5,
+     "pad_fF": 0.43,
+     "bond_fF": 1.0,
+     "extra_fF": 31.18,
+     "total_fF": 33.03
+    },
+    "s_receiver": {
+     "sizes": [
+      1.0,
+      4.121,
+      16.981,
+      69.976
+     ],
+     "drives_fF": 436.0,
+     "model_fF": 171.73
+    },
+    "s_far_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "extra_fF": 264.27,
+     "total_fF": 436.0
+    },
+    "s_far_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    }
+   }
+  },
+  "ownnet": {
+   "clb_crossing": 293.78,
+   "same": 428.36,
+   "cross": 722.14,
+   "worst_edge": 2,
+   "stages_worst_edge": {
+    "s_bond": 0.8,
+    "s_driver": 164.22,
+    "s_far_mux": 257.04,
+    "s_far_net": 92.14,
+    "s_own_mux": 282.11,
+    "s_own_net": 146.25,
+    "s_padwire": 2.36,
+    "s_receiver": 205.58
+   },
+   "edges": {
+    "1": {
+     "cross": 692.56,
+     "s_bond": 0.81,
+     "s_driver": 163.69,
+     "s_far_mux": 222.58,
+     "s_far_net": 100.45,
+     "s_own_mux": 243.5,
+     "s_own_net": 153.62,
+     "s_padwire": 2.41,
+     "s_receiver": 202.62,
+     "same": 397.12
+    },
+    "2": {
+     "cross": 722.14,
+     "s_bond": 0.8,
+     "s_driver": 164.22,
+     "s_far_mux": 257.04,
+     "s_far_net": 92.14,
+     "s_own_mux": 282.11,
+     "s_own_net": 146.25,
+     "s_padwire": 2.36,
+     "s_receiver": 205.58,
+     "same": 428.36
+    }
+   },
+   "loads": {
+    "fle_driver": {
+     "drives_fF": 792.0,
+     "model_fF": 240.25,
+     "sizes": [
+      1.0,
+      3.498,
+      12.237,
+      42.806,
+      149.74
+     ]
+    },
+    "s_own_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "opin_um": 302.8,
+     "opin_wire_fF": 51.89,
+     "opin_loads": 10,
+     "extra_fF": 551.75,
+     "total_fF": 723.47
+    },
+    "s_own_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    },
+    "s_driver": {
+     "sizes": [
+      1.0,
+      2.645,
+      6.996,
+      18.504
+     ],
+     "drives_fF": 74.0,
+     "model_fF": 42.82
+    },
+    "s_padwire": {
+     "um": 260.0,
+     "R_ohm": 40.73,
+     "wire_fF": 39.46
+    },
+    "s_bond": {
+     "via_stack_ohm": 11.7,
+     "bond_ohm": 0.5,
+     "pad_fF": 0.43,
+     "bond_fF": 1.0,
+     "extra_fF": 31.18,
+     "total_fF": 33.03
+    },
+    "s_receiver": {
+     "sizes": [
+      1.0,
+      4.121,
+      16.981,
+      69.976
+     ],
+     "drives_fF": 436.0,
+     "model_fF": 171.73
+    },
+    "s_far_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "extra_fF": 264.27,
+     "total_fF": 436.0
+    },
+    "s_far_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    }
+   }
+  },
+  "cells": {
+   "clb_crossing": 302.18,
+   "same": 471.74,
+   "cross": 773.92,
+   "worst_edge": 1,
+   "stages_worst_edge": {
+    "s_bond": 1.05,
+    "s_driver": 277.72,
+    "s_far_mux": 239.05,
+    "s_far_net": 117.13,
+    "s_own_mux": 273.7,
+    "s_own_net": 198.04,
+    "s_padwire": 2.8,
+    "s_receiver": 136.17
+   },
+   "edges": {
+    "1": {
+     "cross": 773.92,
+     "s_bond": 1.05,
+     "s_driver": 277.72,
+     "s_far_mux": 239.05,
+     "s_far_net": 117.13,
+     "s_own_mux": 273.7,
+     "s_own_net": 198.04,
+     "s_padwire": 2.8,
+     "s_receiver": 136.17,
+     "same": 471.74
+    },
+    "2": {
+     "cross": 701.46,
+     "s_bond": 1.03,
+     "s_driver": 194.52,
+     "s_far_mux": 263.06,
+     "s_far_net": 97.11,
+     "s_own_mux": 293.57,
+     "s_own_net": 164.96,
+     "s_padwire": 2.76,
+     "s_receiver": 142.98,
+     "same": 458.54
+    }
+   },
+   "loads": {
+    "fle_driver": {
+     "drives_fF": 792.0,
+     "model_fF": 240.25,
+     "sizes": "mux out 2 -> BUFX16_HS"
+    },
+    "s_own_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "opin_um": 302.8,
+     "opin_wire_fF": 51.89,
+     "opin_loads": 10,
+     "extra_fF": 551.75,
+     "total_fF": 723.47
+    },
+    "s_own_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    },
+    "s_driver": {
+     "cells": "INVX1 -> INVX2",
+     "drives_fF": 74.0
+    },
+    "s_padwire": {
+     "um": 260.0,
+     "R_ohm": 40.73,
+     "wire_fF": 39.46
+    },
+    "s_bond": {
+     "via_stack_ohm": 11.7,
+     "bond_ohm": 0.5,
+     "pad_fF": 0.43,
+     "bond_fF": 1.0,
+     "extra_fF": 31.18,
+     "total_fF": 33.03
+    },
+    "s_receiver": {
+     "cell": "BUFX16_HS",
+     "drives_fF": 436.0
+    },
+    "s_far_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "extra_fF": 264.27,
+     "total_fF": 436.0
+    },
+    "s_far_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    }
+   }
+  },
+  "cells+ins": {
+   "clb_crossing": 582.88,
+   "same": 409.02,
+   "cross": 991.9,
+   "worst_edge": 1,
+   "stages_worst_edge": {
+    "s_bond": 1.05,
+    "s_driver": 252.25,
+    "s_far_mux": 194.58,
+    "s_far_net": 103.48,
+    "s_ins1": 169.33,
+    "s_ins2": 135.58,
+    "s_own_mux": 256.23,
+    "s_own_net": 152.79,
+    "s_padwire": 2.79,
+    "s_receiver": 132.84
+   },
+   "edges": {
+    "1": {
+     "cross": 991.9,
+     "s_bond": 1.05,
+     "s_driver": 252.25,
+     "s_far_mux": 194.58,
+     "s_far_net": 103.48,
+     "s_ins1": 169.33,
+     "s_ins2": 135.58,
+     "s_own_mux": 256.23,
+     "s_own_net": 152.79,
+     "s_padwire": 2.79,
+     "s_receiver": 132.84,
+     "same": 409.02
+    },
+    "2": {
+     "cross": 985.18,
+     "s_bond": 1.03,
+     "s_driver": 177.17,
+     "s_far_mux": 222.46,
+     "s_far_net": 86.19,
+     "s_ins1": 160.17,
+     "s_ins2": 194.49,
+     "s_own_mux": 277.33,
+     "s_own_net": 126.97,
+     "s_padwire": 2.76,
+     "s_receiver": 140.91,
+     "same": 404.3
+    }
+   },
+   "loads": {
+    "fle_driver": {
+     "drives_fF": 627.0,
+     "model_fF": 240.25,
+     "sizes": "mux out 2 -> BUFX16_HS"
+    },
+    "s_own_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "opin_um": 302.8,
+     "opin_wire_fF": 51.89,
+     "opin_loads": 10,
+     "extra_fF": 386.75,
+     "total_fF": 558.47
+    },
+    "s_own_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    },
+    "s_ins1": {
+     "cell": "BUFX8_HS",
+     "drives_fF": 165.0
+    },
+    "s_driver": {
+     "cells": "INVX1 -> INVX2",
+     "drives_fF": 74.0
+    },
+    "s_padwire": {
+     "um": 260.0,
+     "R_ohm": 40.73,
+     "wire_fF": 39.46
+    },
+    "s_bond": {
+     "via_stack_ohm": 11.7,
+     "bond_ohm": 0.5,
+     "pad_fF": 0.43,
+     "bond_fF": 1.0,
+     "extra_fF": 31.18,
+     "total_fF": 33.03
+    },
+    "s_receiver": {
+     "cell": "BUFX16_HS",
+     "drives_fF": 386.0
+    },
+    "s_far_net": {
+     "um": 520.0,
+     "R_ohm": 464.29,
+     "wire_fF": 81.01,
+     "unit_loads": 59,
+     "extra_fF": 214.27,
+     "total_fF": 386.0
+    },
+    "s_ins2": {
+     "cell": "CLKBUFX2_HS",
+     "drives_fF": 50.0
+    },
+    "s_far_mux": {
+     "inputs": 60,
+     "out_sizes": [
+      1
+     ],
+     "drives": "two unit inverters"
+    }
+   }
+  }
+ }
+}

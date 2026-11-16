@@ -7,6 +7,7 @@ top module, clocks, an area-driven floorplan, and no macros. Physical signoff
 is off because it needs the macro GDS, and footprint and wires do not need it.
 """
 import argparse
+import csv
 from pathlib import Path
 import re
 import shutil
@@ -31,7 +32,8 @@ def delete_block(text, start, end):
     return text[:first] + text[last:]
 
 
-def patch_constraints(text, bond_load=0.006, bond_driver="BUFX4", keep_drivers=False):
+def patch_constraints(text, bond_load=0.006, bond_driver="BUFX4", keep_drivers=False, port_loads=None,
+                      bond_delays=None):
     start = text.index("if {[sizeof_collection [get_ports clk_i]] > 0} {")
     end = text.index("# ================= #", start)
     clocks = """foreach {name ports} {coreClk {clk n_clk_0} progClk {prog_clk n_prog_clk_0}} {
@@ -66,6 +68,19 @@ if {[sizeof_collection [get_ports -quiet x_*]] > 0} {
         # BUFX16 cells, not the xd_* wrappers: a locked wrapper is never uniquified, and Innovus
         # rejects the netlist (IMPCCOPT-4255).
         clocks += 'set_dont_touch [get_cells -quiet -hierarchical -filter "ref_name == BUFX16"]\n'
+    if port_loads:
+        # Each bond output port's real load on the other layer (bond_net_loads.py), so the tools
+        # size its driver for it.
+        clocks += "".join(f"set_load {load} [get_ports {port}]\n" for port, load in sorted(port_loads.items()))
+    if bond_delays:
+        # A layer laid out alone sees only half of each crossing path, with the whole period to spare
+        # (the input and output delays above are 0), so it never treats a crossing as critical.
+        # These give each half the other half's time: when the sending half reaches the bond port,
+        # and how long the receiving half still needs.
+        clocks += ('if {[sizeof_collection [get_ports -quiet x_*]] > 0} {\n'
+                   f'    set_input_delay {bond_delays[0]} -clock coreClk [get_ports x_* -filter "direction == in"]\n'
+                   f'    set_output_delay {bond_delays[1]} -clock coreClk [get_ports x_* -filter "direction == out"]\n'
+                   '}\n')
     return text[:start] + clocks + text[end:]
 
 
@@ -74,6 +89,38 @@ set xd [dbGet -e -p top.insts.name *xd_*/buffer]
 if {$xd ne ""} { dbSet $xd.dontTouch true }
 puts "KEEP_DRIVERS [llength $xd]"
 """
+
+
+def keep_nets_apr(nets):
+    """Innovus may resize the cells on these nets but not buffer them (setup_pnr.py --keep-crossing-nets)."""
+    return ("# Crossing nets keep the circuit SPICE models: no buffers inserted on them (--keep-crossing-nets).\n"
+            "set kept 0\n"
+            f"foreach net {{{' '.join(nets)}}} {{\n"
+            "    if {[catch {set_dont_touch [get_nets $net] true}]} {\n"
+            "        if {[catch {dbSet [dbGet -p top.nets.name $net].dontTouch true}]} { continue }\n"
+            "    }\n"
+            "    incr kept\n"
+            "}\n"
+            f"puts \"KEEP_CROSSING_NETS $kept of {len(nets)}\"\n")
+
+
+def module_text(rtl, top):
+    text = rtl.read_text()
+    found = re.search(rf"^\s*module\s+{re.escape(top)}\b.*?^\s*endmodule", text, re.M | re.S)
+    if not found:
+        raise SystemExit(f"{rtl}: no module {top}")
+    return found.group(0)
+
+
+def crossing_nets(text, table):
+    """This layer's nets on crossing paths: each crossing signal (FLE output or input pin) and its bond net."""
+    nets = []
+    for r in csv.DictReader(open(table)):
+        if r["type"] in ("input pin", "FLE output"):
+            for net in (f"n_{r['signal']}_{r['bit']}", f"x_{r['signal']}_{r['bit']}"):
+                if re.search(rf"\b{re.escape(net)}\b", text):
+                    nets.append(net)
+    return nets
 
 
 def patch_floorplan(text, core):
@@ -139,6 +186,12 @@ def main():
     parser.add_argument("--bond-driver", default="BUFX4", help="cell that drives an input port across the bond")
     parser.add_argument("--keep-crossing-drivers", action="store_true",
                         help="stop synthesis and Innovus resizing the crossing drivers (direct crossings)")
+    parser.add_argument("--bond-delays", type=float, nargs=2, metavar=("IN", "OUT"),
+                        help="ns: input delay on bond input ports, output delay on bond output ports")
+    parser.add_argument("--bond-loads", type=Path,
+                        help="CSV of port,load_pf (bond_net_loads.py): each bond output port's own set_load")
+    parser.add_argument("--keep-crossing-nets", type=Path, metavar="CROSSINGS_CSV",
+                        help="clb_crossings.csv: no buffers inserted on the crossing nets in Innovus")
     args = parser.parse_args()
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
@@ -158,7 +211,15 @@ def main():
         text = re.sub(r"variable CLOCK_PERIOD\s+[\d.]+", f"variable CLOCK_PERIOD {args.period}", text)
         return re.sub(r"variable SIGNOFF\s+1", "variable SIGNOFF 0", text)
     edit(s / "config.tcl", config)
-    edit(s / "synthesis/steps/step_constraints.tcl", lambda t: patch_constraints(t, args.bond_load, args.bond_driver, args.keep_crossing_drivers))
+    port_loads = None
+    if args.bond_loads:
+        outputs = set(re.findall(r"^\s*output\s+(x_\w+)\s*;", module_text(args.rtl, args.top), re.M))
+        port_loads = {r["port"]: float(r["load_pf"]) for r in csv.DictReader(open(args.bond_loads)) if r["port"] in outputs}
+        if outputs and len(port_loads) != len(outputs):
+            raise SystemExit(f"{args.bond_loads}: loads for {len(port_loads)} of {len(outputs)} bond outputs")
+    edit(s / "synthesis/steps/step_constraints.tcl",
+         lambda t: patch_constraints(t, args.bond_load, args.bond_driver, args.keep_crossing_drivers, port_loads,
+                                     args.bond_delays))
     edit(s / "synthesis/steps/step_define_library.tcl",
          lambda t: "\n".join(line for line in t.split("\n") if "CF_SRAM" not in line))
     edit(s / "apr/steps/step_init_design.tcl",
@@ -173,6 +234,9 @@ def main():
     if args.keep_crossing_drivers:
         # Innovus ignores synthesis's dont_touch and sizes each driver for its own layer only.
         edit(s / "apr/steps/step_place_std_cells.tcl", lambda t: KEEP_DRIVERS_APR + t)
+    if args.keep_crossing_nets:
+        nets = crossing_nets(module_text(args.rtl, args.top), args.keep_crossing_nets)
+        edit(s / "apr/steps/step_place_std_cells.tcl", lambda t: keep_nets_apr(nets) + t)
     if args.core:
         (s / "pads.tcl").write_text(bond_pads(args.rtl, args.core, args.center_pads))
     edit(s / "apr/apr.tcl", lambda t: t.replace("if {$::config::INTERACTIVE} {\n\tsj_end_collection",

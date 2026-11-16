@@ -172,10 +172,10 @@ calls `pnr/run_bond.sh` (FLES, CENTER_PADS, PERIOD default 2 ns, CORE default 35
 
 1. `add_crossing_buffers.py clb_split.v clb_crossings.csv OUT [--direct]` - a driver and receiver on each crossing; with `--direct` (`run_bond.sh DIRECT=1`) one `crossing_driver` on the sending layer and none on the other.
 2. `make_pnr_rtl.py --top clb_layer{0,1}` - one synthesizable file per layer (drops `TGATE`, maps `crossing_buffer` to `BUFX4` and `crossing_driver` to `BUFX16`, strips simulation-only code).
-3. `setup_pnr.py --period --core [--center-pads] [--bond-load --bond-driver --keep-crossing-drivers]` - a copy of the SiliconJackets flow per layer, with bond pads (`bond_pads`); `DIRECT=1` passes a 1 pF bond load, a BUFX16 driving cell, and dont_touch on the BUFX16 cells in synthesis and in Innovus (`KEEP_DRIVERS_APR`).
+3. `setup_pnr.py --period --core [--center-pads] [--bond-load --bond-driver --keep-crossing-drivers]` - a copy of the SiliconJackets flow per layer, with bond pads (`bond_pads`); `DIRECT=1` passes a 1 pF bond load, a BUFX16 driving cell, and dont_touch on the BUFX16 cells in synthesis and in Innovus (`KEEP_DRIVERS_APR`). Opt-in, for the crossing study: `--bond-loads CSV` (`run_bond.sh BOND_LOADS`; one `set_load` per bond output port), `--keep-crossing-nets clb_crossings.csv` (`KEEP_NETS=1`; dont_touch on the crossing nets before placement, so Innovus inserts no buffers on them), `--bond-delays IN OUT` (`BOND_DELAYS`; input and output delay on the bond ports instead of 0).
 4. `run_block.csh` - synthesis and place and route; `run_innovus.csh ... export_layout.tcl` - routed netlist, SPEF, SDF.
 5. `join_netlist.py` - both layers' routed netlists into `join3d/joined.v` (+ `top.spef`).
-6. `run_tempus.csh ... join_timing.tcl` (env `PNR_LAYERS=2`, `PNR_FLES`, `PNR_NETLIST`, `PNR_SPEF`) - times every CLB-input and feedback path through the crossbar, writes `clb_paths.csv`.
+6. `run_tempus.csh ... join_timing.tcl` (env `PNR_LAYERS=2`, `PNR_FLES`, `PNR_NETLIST`, `PNR_SPEF`) - times every CLB-input and feedback path through the crossbar, writes `clb_paths.csv` (last column `mux_in`: arrival at the crossbar mux's first pin; older files lack it). `PNR_CROSSING_PATH=1` (set by `run_bond.sh`) also writes `crossing_path.txt`, FLE 0 to layer 1 mux 15 input 2.
 7. `compare_joined.py joined.csv flat.csv [FLES]` - path-by-path against the 2D CLB (`pnr_fast/join2d/clb_paths.csv`).
 
 Other `pnr/` scripts: `run_pnr.sh` (first per-layer crossbar timing at a clock neither
@@ -185,6 +185,15 @@ modules, then `make_pnr_rtl.py`/`setup_pnr.py`/`run_block.csh` per module; env W
 SPAN4, SPAN16, FLES, LOCAL, OWN, STACKED, WIDTH2D), `tile_area.py` (adds CLB and routing
 into a tile), `report_block_power.tcl`, and `asap7/` (`run_asap7.sh`, `synth.tcl`,
 `pnr.tcl`, `mmmc.tcl`, `make_db.tcl`, `join_asap7.sh`) for the ASAP7 repeat.
+
+In-CLB crossing study (`crossing_stages_results.txt`): `bond_net_loads.py` (what each bond output
+port drives on the other layer, from SPEF, routed netlist and liberty), `run_crossing_fix.sh`
+(`pnr_local20c` again with one change: RUNS `s` real bond loads, `t` also no inserted buffers on
+crossing nets, `u` real loads and bond-port timing budgets), `retime_joined.sh` (finished layouts
+timed again with the current `join_timing.tcl`), `crossing_stages_layout.py` (the stage tables).
+The SPICE side is `../spice/crossing_stages.py` (`run_crossing_stages.sh`): make_spice.py's
+feedback deck with a measure per stage, moved one change at a time toward the layout's worst
+crossing path, with the kit's standard cells read from its CDL.
 
 ### 2.3 Hardware checks (`ff_test/`)
 
@@ -415,6 +424,8 @@ Path timing, recomputed with `compare_joined.py JOINED FLAT [FLES]` and
 | `clb_paths_local20_center_direct_2ns.csv` (7,200), `FLES=20` | same, `DIRECT=1` (bond as a via, `pnr_local20g`) | pin same layer 1.018; feedback same 1.005, crossing 1.737 (3D mean 1.582) |
 | `clb_paths_local20_center_tap_2ns.csv` (7,200), `FLES=20` | same, crossing driver inside the FLE in parallel (tap, `pnr_local20i`) | pin same layer 1.044; feedback same 1.023, crossing 1.576 (3D mean 1.435) |
 | `direct_crossing_results.txt` | three `DIRECT=1` tries (`pnr_local20d/f/g`) and the gate check of the last; then the tap layout (`pnr_local20i`) and its gate check | crossing 2.288 / 1.950 / 1.582; 20g gate check passes at 20, 10, 8, 7 ns, fails at 6 and 5; 20i (tap, 1.435) passes at 20, 10, 8, fails at 7, 6, 5; all cut cases fail |
+| `clb_paths_local20_center_loaded_2ns.csv`, `_nobuf_`, `_budget_` (7,200 each), `FLES=20` | `run_crossing_fix.sh` runs s, t, u (`pnr_local20s/t/u`) | s: pin same layer 1.023; feedback same 1.025, crossing 1.831 (3D mean 1.668). t: 1.062; 1.154, 1.978 (1.801). u: 1.108; 1.024, 1.627 (1.481) |
+| `crossing_stages_results.txt` | `crossing_stages_layout.py` (+ header, run log lines) | crossing over same layer 0.761 (20c), 0.735 (s), 0.750 (t), 0.549 (u); SPICE base 339.3, with the layout's cells, loads and buffers 582.9 |
 | `crossing_path_local20_center.txt`, `crossing_path_local20_center_direct.txt` | `explain_crossing`-style Tempus report, FLE 0 to layer 1 mux 15 input 2 | FLE output driver to far mux input inverter 0.999 vs 0.566 ns; direct BUFX16 stage 0.358 ns |
 
 Tile area (`run_tile.sh`; core um2, sky130, 0.5 ns clock; arithmetic checked):

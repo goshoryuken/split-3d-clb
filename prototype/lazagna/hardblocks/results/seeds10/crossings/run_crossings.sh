@@ -2,17 +2,22 @@
 # Crossing-delay sensitivity with every layer crossing scaled together: the split fabric's in-CLB
 # and routing crossings and the stacked fabric's routing crossing, all times k. k = 1.49 and 2.24
 # put the in-CLB crossing at the layout values (504 and 760 ps, pnr/direct_crossing_results.txt;
-# SPICE: 339 ps); 1.75 and 2.0 fill in between. ABL=1 also runs the ablation fabric (split CLB on
-# stacked's routing, as ablation/run_ablation.sh) at k = 2.24. The crossing inside spanning RAM/DSP
-# blocks stays at 339 ps in both fabrics. Everything else as run_hb10.sh (columns, hard inputs both,
-# relaxed 1.3x with its own width search, 10 seeds); routed clocks, then ideal clocks at the same
-# widths. k = 1 is the headline (../ideal, ../route). Delay sets: delays_crossings.json, *_k<NNN>.
-# Usage: crossings/run_crossings.sh OUT [K...]     (default K: 149 175 200 224)
+# SPICE: 339 ps); 1.75 and 2.0 fill in between; 1.36 and 1.62 put it at SPICE with the layout's
+# crossing-side loads (463 ps) and at the timing-budgeted layout (549 ps), from
+# pnr/crossing_stages_results.txt; 2.72 puts the routing crossing at LaZagna's default
+# (0.739 of an L4 driver) and 3.0 goes past it. ABL=1 also runs the ablation fabric (split CLB on
+# stacked's routing, as ablation/run_ablation.sh) at k = 2.24. These are all the crossings there
+# are: with --hard-blocks columns each RAM/DSP sits on one layer, so --hard-crossing-ps (used only
+# by --hard-blocks span) changes nothing here; the arch files are identical with it at 339 or 760
+# ps. Everything else as run_hb10.sh (columns, hard inputs both, relaxed 1.3x with its own width
+# search, 10 seeds); routed clocks, then ideal clocks at the same widths. k = 1 is the headline
+# (../ideal, ../route). Delay sets: delays_crossings.json, *_k<NNN>.
+# Usage: crossings/run_crossings.sh OUT [K...]     (default K: 149 175 200 224 272 300)
 # Env: VPR (default build/vpr/vpr/vpr), JOBS (parallel VPR runs per fabric, default 4), ABL=1.
 HERE=$(cd "$(dirname "$0")" && pwd)
 LZ=$(cd "$HERE/../../../.." && pwd)
 OUT=$(mkdir -p "${1:?usage: run_crossings.sh OUT [K...]}" && cd "$1" && pwd); shift
-KS=${*:-149 175 200 224}
+KS=${*:-149 175 200 224 272 300}
 VPR=${VPR:-$LZ/../../build/vpr/vpr/vpr}
 J=$HERE/delays_crossings.json
 HC=$(python3 -c "import json; print(json.load(open('$J'))['3d20own_w100']['clb_crossing'])")

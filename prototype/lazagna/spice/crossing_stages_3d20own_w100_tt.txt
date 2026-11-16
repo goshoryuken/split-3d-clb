@@ -1,0 +1,87 @@
+CDL: <kit>/cadence_sky130/sky130_scl_9T_0.1.2/sky130_scl_9T/cdl/sky130_scl_9T.cdl <kit>/cadence_sky130/sky130_scl_9T_0.1.2/sky130_scl_9T_HS/cdl/sky130_scl_9T_HS.cdl <kit>/cadence_sky130/sky130_scl_9T_0.1.2/sky130_scl_9T_LP/cdl/sky130_scl_9T_LP.cdl <kit>/cadence_sky130/sky130_scl_9T_0.1.2/sky130_scl_9T_tech/cdl/sky130_scl_9T_phyCells.cdl 
+base clb_crossing 339.33
+bondnet clb_crossing 350.55
+farnet clb_crossing 462.81
+ownnet clb_crossing 293.78
+cells clb_crossing 302.18
+cells+ins clb_crossing 582.88
+base       fle_driver   {"drives_fF": 240.25, "model_fF": 240.25, "sizes": [1.0, 2.756, 7.594, 20.925, 57.662]}
+bondnet    fle_driver   {"drives_fF": 240.25, "model_fF": 240.25, "sizes": [1.0, 2.756, 7.594, 20.925, 57.662]}
+farnet     fle_driver   {"drives_fF": 240.25, "model_fF": 240.25, "sizes": [1.0, 2.756, 7.594, 20.925, 57.662]}
+ownnet     fle_driver   {"drives_fF": 792.0, "model_fF": 240.25, "sizes": [1.0, 3.498, 12.237, 42.806, 149.74]}
+cells      fle_driver   {"drives_fF": 792.0, "model_fF": 240.25, "sizes": "mux out 2 -> BUFX16_HS"}
+cells+ins  fle_driver   {"drives_fF": 627.0, "model_fF": 240.25, "sizes": "mux out 2 -> BUFX16_HS"}
+cells+ins  s_ins1       {"cell": "BUFX8_HS", "drives_fF": 165.0}
+base       s_driver     {"sizes": [1.0, 5.322], "drives_fF": 42.82, "model_fF": 42.82}
+bondnet    s_driver     {"sizes": [1.0, 2.645, 6.996, 18.504], "drives_fF": 74.0, "model_fF": 42.82}
+farnet     s_driver     {"sizes": [1.0, 2.645, 6.996, 18.504], "drives_fF": 74.0, "model_fF": 42.82}
+ownnet     s_driver     {"sizes": [1.0, 2.645, 6.996, 18.504], "drives_fF": 74.0, "model_fF": 42.82}
+cells      s_driver     {"cells": "INVX1 -> INVX2", "drives_fF": 74.0}
+cells+ins  s_driver     {"cells": "INVX1 -> INVX2", "drives_fF": 74.0}
+base       s_padwire    {"um": 260.0, "R_ohm": 40.73, "wire_fF": 39.46}
+bondnet    s_padwire    {"um": 260.0, "R_ohm": 40.73, "wire_fF": 39.46}
+farnet     s_padwire    {"um": 260.0, "R_ohm": 40.73, "wire_fF": 39.46}
+ownnet     s_padwire    {"um": 260.0, "R_ohm": 40.73, "wire_fF": 39.46}
+cells      s_padwire    {"um": 260.0, "R_ohm": 40.73, "wire_fF": 39.46}
+cells+ins  s_padwire    {"um": 260.0, "R_ohm": 40.73, "wire_fF": 39.46}
+base       s_bond       {"via_stack_ohm": 11.7, "bond_ohm": 0.5, "pad_fF": 0.43, "bond_fF": 1.0, "extra_fF": 0.0, "total_fF": 1.86}
+bondnet    s_bond       {"via_stack_ohm": 11.7, "bond_ohm": 0.5, "pad_fF": 0.43, "bond_fF": 1.0, "extra_fF": 31.18, "total_fF": 33.03}
+farnet     s_bond       {"via_stack_ohm": 11.7, "bond_ohm": 0.5, "pad_fF": 0.43, "bond_fF": 1.0, "extra_fF": 31.18, "total_fF": 33.03}
+ownnet     s_bond       {"via_stack_ohm": 11.7, "bond_ohm": 0.5, "pad_fF": 0.43, "bond_fF": 1.0, "extra_fF": 31.18, "total_fF": 33.03}
+cells      s_bond       {"via_stack_ohm": 11.7, "bond_ohm": 0.5, "pad_fF": 0.43, "bond_fF": 1.0, "extra_fF": 31.18, "total_fF": 33.03}
+cells+ins  s_bond       {"via_stack_ohm": 11.7, "bond_ohm": 0.5, "pad_fF": 0.43, "bond_fF": 1.0, "extra_fF": 31.18, "total_fF": 33.03}
+base       s_receiver   {"sizes": [1.0, 3.265, 10.657, 34.791], "drives_fF": 171.73, "model_fF": 171.73}
+bondnet    s_receiver   {"sizes": [1.0, 3.265, 10.657, 34.791], "drives_fF": 171.73, "model_fF": 171.73}
+farnet     s_receiver   {"sizes": [1.0, 4.121, 16.981, 69.976], "drives_fF": 436.0, "model_fF": 171.73}
+ownnet     s_receiver   {"sizes": [1.0, 4.121, 16.981, 69.976], "drives_fF": 436.0, "model_fF": 171.73}
+cells      s_receiver   {"cell": "BUFX16_HS", "drives_fF": 436.0}
+cells+ins  s_receiver   {"cell": "BUFX16_HS", "drives_fF": 386.0}
+cells+ins  s_ins2       {"cell": "CLKBUFX2_HS", "drives_fF": 50.0}
+base       s_far_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "extra_fF": 0.0, "total_fF": 171.73}
+bondnet    s_far_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "extra_fF": 0.0, "total_fF": 171.73}
+farnet     s_far_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "extra_fF": 264.27, "total_fF": 436.0}
+ownnet     s_far_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "extra_fF": 264.27, "total_fF": 436.0}
+cells      s_far_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "extra_fF": 264.27, "total_fF": 436.0}
+cells+ins  s_far_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "extra_fF": 214.27, "total_fF": 386.0}
+base       s_far_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+bondnet    s_far_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+farnet     s_far_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+ownnet     s_far_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+cells      s_far_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+cells+ins  s_far_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+base       s_own_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "opin_um": 302.8, "opin_wire_fF": 51.89, "opin_loads": 10, "extra_fF": 0.0, "total_fF": 171.73}
+bondnet    s_own_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "opin_um": 302.8, "opin_wire_fF": 51.89, "opin_loads": 10, "extra_fF": 0.0, "total_fF": 171.73}
+farnet     s_own_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "opin_um": 302.8, "opin_wire_fF": 51.89, "opin_loads": 10, "extra_fF": 0.0, "total_fF": 171.73}
+ownnet     s_own_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "opin_um": 302.8, "opin_wire_fF": 51.89, "opin_loads": 10, "extra_fF": 551.75, "total_fF": 723.47}
+cells      s_own_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "opin_um": 302.8, "opin_wire_fF": 51.89, "opin_loads": 10, "extra_fF": 551.75, "total_fF": 723.47}
+cells+ins  s_own_net    {"um": 520.0, "R_ohm": 464.29, "wire_fF": 81.01, "unit_loads": 59, "opin_um": 302.8, "opin_wire_fF": 51.89, "opin_loads": 10, "extra_fF": 386.75, "total_fF": 558.47}
+base       s_own_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+bondnet    s_own_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+farnet     s_own_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+ownnet     s_own_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+cells      s_own_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+cells+ins  s_own_mux    {"inputs": 60, "out_sizes": [1], "drives": "two unit inverters"}
+base 339.33 vs delays_tt.json's clb_crossing 339.23: off by +0.10 ps, reproduced (within 1 ps)
+stage                                   base           bondnet            farnet            ownnet             cells         cells+ins
+crossing path (ps / fF driven or wire fF)
+  inserted buffer (Innovus)                 -                 -                 -                 -                 -         169 / 165
+  crossing driver                   146 / 43          167 / 74          167 / 74          164 / 74          278 / 74          252 / 74
+  wire to the pad                     1 / 39            2 / 39            2 / 39            2 / 39            3 / 39            3 / 39
+  via stacks, pads, bond               0 / 2            1 / 33            1 / 33            1 / 33            1 / 33            1 / 33
+  receiver                         189 / 172         178 / 172         205 / 436         206 / 436         136 / 436         133 / 386
+  inserted buffer (Innovus)                 -                 -                 -                 -                 -          136 / 50
+  far net (wire, loads)             38 / 172          38 / 172          92 / 436          92 / 436         117 / 436         103 / 386
+  far crossbar mux                       226               226               257               257               239               195
+  sum of stages                          601               612               724               722               774               992
+  measured, that edge                    601               612               724               722               774               992
+same-layer path
+  own net (wire, loads)                   37                37                37               146               198               153
+  own crossbar mux                       224               224               224               282               274               256
+  measured, that edge                    262               262               262               428               472               409
+worst edge of each, as make_spice
+  crossing path                        600.9             612.2             724.5             722.1             773.9             991.9
+  same layer                           261.6             261.6             261.6             428.4             471.7             409.0
+  clb_crossing                         339.3             350.6             462.8             293.8             302.2             582.9
+FLE driver drives fF                     240               240               240               792               792               627
+wrote <out>/crossing_stages_3d20own_w100_tt.json
+STAGES_DONE
