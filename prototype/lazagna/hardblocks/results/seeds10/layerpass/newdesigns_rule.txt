@@ -1,0 +1,43 @@
+Experiment C: which extra Koios designs join (written 2026-11-17 01:12 EST, before any trial run
+and before any pass-on run of an extra design)
+
+Candidates: the 8 Koios designs in ~/sharc-lab/koios_blifs outside the 7 (synthesized with the 7 by
+hardblocks/synth_koios.sh). Trials: reduction_layer, softmax, tpu_like.small.ws (10-30k LUTs, the
+size of the 7), and lstm and dla_like.small (about 95k LUTs each). dnnweaver (114k LUTs, 1221 RAMs),
+clstm_like.small (175k) and gemm_layer (396k) get no trial: each is bigger than lstm and
+dla_like.small, so if those two fail the rule these fail it too; if lstm or dla_like.small passes,
+they get a trial before the sweep starts.
+
+Trial: seed 1, the split fabric with the pass off, SPICE delays (k = 1.0), routed clocks, exactly as
+the sweep runs it: VPR's minimum-width search, then the route at 1.3x the minimum. VPR wrapped in
+/usr/bin/time -l (hardblocks/vpr_timed.sh) for wall time and peak memory. Run with other VPR jobs
+alongside (the B sweep), so times are pessimistic. Each VPR step is capped at 30 minutes
+(--timeout 1800).
+
+Rule: an extra design joins if its trial routes and takes at most 30 minutes of wall time in total
+(search plus route) with at most 4 GB peak memory in any VPR step. Every design that passes is run
+in full (10 seeds; stacked, split pass-off and split pass-on; routed and ideal clocks; k = 1.0 and
+k = 1.62 + pins) and reported, with nothing dropped afterwards.
+
+Why these limits: the slowest run of the 7 designs took 13.1 minutes and peaked at 1.72 GB
+(HARDBLOCKS.md, "Cost of a full 10-seed sweep"). 30 minutes and 4 GB are about twice that. Each
+design takes 40 width searches (10 seeds x split and stacked x 2 crossing points), so a design at
+the limit costs about 20 VPR-hours, about 2 hours of wall time at 12 runs in parallel.
+
+Outcome of the trials (2026-11-17, before any pass-on run of an extra design; GB here = 2^30 bytes)
+design              width search          relaxed route        tracks (min)   rule
+reduction_layer     263.9 s, 0.48 GB      13.9 s, 0.42 GB      124 (94)       passes (4.6 min)
+softmax             132.3 s, 0.88 GB      27.2 s, 0.55 GB       82 (62)       passes (2.7 min)
+tpu_like.small.ws   290.0 s, 1.18 GB      61.3 s, 0.95 GB      108 (82)       passes (5.9 min)
+lstm                stopped at 19.5 min in the width search, resident memory 4.07 GB      fails (memory)
+dla_like.small      stopped at 19.5 min in the width search                                fails (memory)
+(/usr/bin/time -l at the end of each run's min_width.log and run.log for the first three. lstm and
+dla_like.small never finished, so there is no /usr/bin/time line: their memory was read with ps
+while they ran. At 19 min 23 s the two VPR processes, the only ones of these trials, held 4.04 and
+4.27 GB, both above the 4 GB limit; at 19 min 31 s lstm held 4.07 GB and dla_like.small 3.74 GB.
+They were then stopped, since the rule had failed for both.)
+So dnnweaver, clstm_like.small and gemm_layer get no trial (see above), and the list is
+reduction_layer, softmax and tpu_like.small.ws. tpu_like.small.ws is a close relative of
+tpu_like.small.os (one of the 7): both are Koios's 16x16 TPU-like design; the .os source calls its
+systolic unit output stationary, and .ws is, by its name, the weight-stationary version. It is not
+an independent design in the way the other two are.

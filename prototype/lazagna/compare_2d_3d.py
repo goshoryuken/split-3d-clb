@@ -526,6 +526,7 @@ def run(job):
         grid, luts = grid_for(bench, clb_layers, fles)
         tag = ""
     tag += "" if CLOCK == "route" else f"_clk{CLOCK}"
+    tag += "_lp" if LAYER_PASS and label == "3d" else ""
     work = out / f"{label}_n{fles}_w{f'x{RELAX}' if RELAX else width}_s{scale}_c{crossing}_{bench}_{seed}{tag}"
     work.mkdir(parents=True, exist_ok=True)
     arch = work / "arch.xml"
@@ -534,6 +535,13 @@ def run(job):
     if RELAX:
         # VTR's usual method: find the fewest tracks that route, then route with RELAX times as many.
         width_file = work / "width.txt"
+        if label == "3d" and WIDTHS:
+            if (bench, seed) not in WIDTHS:
+                return result_row(label, 0, scale, crossing, bench, luts, grid, seed, fles, 1, "", extra)
+            if not (arch.exists() and arch.read_text() == xml and width_file.exists()):
+                arch.write_text(xml)
+                log_file.unlink(missing_ok=True)
+                width_file.write_text(f"{WIDTHS[(bench, seed)]} from-csv\n")
         if not (arch.exists() and arch.read_text() == xml and width_file.exists()):
             arch.write_text(xml)
             log_file.unlink(missing_ok=True)
@@ -550,7 +558,9 @@ def run(job):
         # The same run finished before, in this or an earlier sweep into the same folder.
         log = log_file.read_text()
         if "Final critical path delay" in log:
-            return result_row(label, width, scale, crossing, bench, luts, grid, seed, fles, 0, log, extra)
+            # With --analysis (--layer-pass, --relayer) VPR also reports a delay after a failed route.
+            failed = 1 if "Routing failed" in log else 0
+            return result_row(label, width, scale, crossing, bench, luts, grid, seed, fles, failed, log, extra)
     arch.write_text(xml)
     command = [str(VPR), str(arch), str(BENCH / f"{bench}.blif"), "--route_chan_width", str(width),
                "--clock_modeling", CLOCK, "--disp", "off", "--seed", str(seed),
@@ -560,13 +570,27 @@ def run(job):
         (work / "pack.log").write_text(packed.stdout + packed.stderr)
         relayer_net.rearrange(work / f"{bench}.net", work / f"{bench}.net")
         command += ["--place", "--route", "--analysis"]
+    if label == "3d" and LAYER_PASS:
+        packed = subprocess.run(command + ["--pack", "--pack_criticality_file", "pack_criticality.tsv"],
+                                cwd=work, text=True, capture_output=True, timeout=TIMEOUT)
+        (work / "pack.log").write_text(packed.stdout + packed.stderr)
+        moved = None
+        if packed.returncode == 0:
+            moved = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "layer_pass.py"),
+                                    f"{bench}.net", "pack_criticality.tsv", "arch.xml"] + LAYER_PASS_ARGS,
+                                   cwd=work, text=True, capture_output=True, timeout=TIMEOUT)
+            (work / "layer_pass.log").write_text(moved.stdout + moved.stderr)
+        if moved is None or moved.returncode != 0:
+            return result_row(label, width, scale, crossing, bench, luts, grid, seed, fles, 1, "", extra)
+        command += ["--place", "--route", "--analysis"]
     result = subprocess.run(command, cwd=work, text=True, capture_output=True, timeout=TIMEOUT)
     log = result.stdout + result.stderr
     log_file.write_text(log)
     if SLIM:
         # Keep what the summary and timing checks read; packing, placement and routing files are large.
         for path in work.iterdir():
-            if path.name not in ("arch.xml", "run.log", "report_timing.setup.rpt", "width.txt", "min_width.log") and path.is_file():
+            if path.name not in ("arch.xml", "run.log", "report_timing.setup.rpt", "width.txt", "min_width.log",
+                                 "layer_pass.log") and path.is_file():
                 path.unlink()
     return result_row(label, width, scale, crossing, bench, luts, grid, seed, fles, result.returncode, log, extra)
 
@@ -588,7 +612,7 @@ def main():
     global BENCH, VPR, CLB_CROSSING, EXTRA, RELAYER, WIRE_SPANS, CROSSBAR_SCALE, STACKED, LOCAL_INPUTS, LOCAL_2D, SCALE_2D
     global N2D, N3D, GROWTH_2D, GROWTH_3D, WIRE_SPANS_2D, TIMEOUT, CROSSBAR_SCALE_2D, SLIM, SWITCHBLOCKS, VERTICAL, LAYERS
     global RELAX, ROUTING, OWN_LAYER_INPUTS, LINKS_2D, LINKS_3D, LINK_PS, SPAN, SPARSE, SPARSE_2D, HARD, HARD_SCALE
-    global HARD_CROSSING, CLOCK, HARD_INPUTS
+    global HARD_CROSSING, CLOCK, HARD_INPUTS, LAYER_PASS, WIDTHS, LAYER_PASS_ARGS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vpr", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -604,6 +628,14 @@ def main():
                         help="crossing delay inside the CLB, when it differs from routing")
     parser.add_argument("--vpr-args", default="", help="extra VPR options for every run")
     parser.add_argument("--relayer", action="store_true", help="rearrange FLEs inside 3D CLBs after packing")
+    parser.add_argument("--layer-pass", action="store_true",
+                        help="split CLBs: after packing, move FLEs between the two layers by the packer's "
+                             "connection criticality (layer_pass.py; VPR --pack_criticality_file), then place and "
+                             "route; off by default, and nothing else changes when it is off")
+    parser.add_argument("--layer-pass-args", default="", help="extra options for layer_pass.py (e.g. --control)")
+    parser.add_argument("--widths", nargs="+", type=Path,
+                        help="with --relax-w: take each 3D run's track count from these results CSVs (same bench "
+                             "and seed) instead of searching, so a rerun keeps the earlier run's exact width")
     parser.add_argument("--wire-spans", nargs=2, type=int, metavar=("L4", "L16"),
                         help="tiles crossed by the two 3D wire types, with their delay unchanged")
     parser.add_argument("--crossbar-scale", nargs=2, type=float, metavar=("PINS", "FEEDBACK"),
@@ -671,6 +703,14 @@ def main():
     CLB_CROSSING = args.clb_crossing
     EXTRA = args.vpr_args.split()
     RELAYER = args.relayer
+    LAYER_PASS = args.layer_pass
+    LAYER_PASS_ARGS = args.layer_pass_args.split()
+    WIDTHS = {}
+    for table in args.widths or []:
+        with open(table) as handle:
+            for r in csv.DictReader(handle):
+                if r["fabric"] == "3d" and int(r["chan_width"] or 0) > 0:
+                    WIDTHS[(r["bench"], int(r["seed"]))] = int(r["chan_width"])
     WIRE_SPANS = args.wire_spans
     CROSSBAR_SCALE = args.crossbar_scale
     STACKED = args.stacked
@@ -699,6 +739,8 @@ def main():
     HARD_INPUTS = args.hard_inputs
     assert HARD == ["none"] or ("none" not in HARD and LAYERS == 2 and SPAN == 2 and not RELAYER), \
         "hard blocks: two-layer fabrics only, and not with none"
+    assert not LAYER_PASS or (LOCAL_INPUTS and not STACKED and not RELAYER), "--layer-pass: split CLBs with --local-inputs"
+    assert not args.widths or RELAX, "--widths replaces the --relax-w width search"
     assert LAYERS == 2 or args.vertical != "none", "layers beyond two connect only through vertical switch blocks"
     SWITCHBLOCKS = args.switchblocks
     VERTICAL = None if args.vertical == "none" else args.vertical

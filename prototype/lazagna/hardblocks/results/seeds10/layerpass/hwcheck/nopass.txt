@@ -1,0 +1,39 @@
+1. Building the routing graph with routed clocks, as LaZagna does
+2. Running VPR and OpenFPGA without them
+3. Splitting the CLB by layer
+4. Compiling the simulation, about 2 minutes
+5. Simulating 1,000 cycles per case
+
+cut         mismatches  expected
+none                 0  must pass
+set                  0  must pass
+clk               4923  must fail
+reset               19  must fail
+clb_clk              0  either
+F0                1033  either
+F10                742  either
+F11                638  either
+F12               1034  either
+F13                618  either
+F14                381  either
+F15                246  either
+F16               1344  either
+F17                968  either
+F18                979  either
+F19                708  either
+F1                 926  either
+F2                1063  either
+F3                 846  either
+F4                 915  either
+F5                1009  either
+F6                 830  either
+F7                 990  either
+F8                 910  either
+F9                 787  either
+
+FLE output crossings the design uses, caught when cut: 20 of 20
+
+6. Long run, 5,000 cycles
+mismatches: 0
+
+PASS: flip-flops work in the split two-layer CLB

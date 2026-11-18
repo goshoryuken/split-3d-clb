@@ -1,0 +1,19 @@
+Koios designs in ~/sharc-lab/koios_blifs (hardblocks/synth_koios.sh): LUTs, RAM and DSP blocks and the
+split fabric's grid side, from hardblocks.grid_for(blif, layout_spec('3d', False, 'columns'), 20).
+* = one of the 7 designs of the main results.
+design                        luts  rams  dsps  grid
+spmv *                        6718   232    16    38
+reduction_layer              10300    52     0    34
+eltwise_layer *              10883    72    11    35
+robot_rl *                   15356    96     6    41
+softmax                      22684     0     8    49
+conv_layer *                 23617    56    42    50
+attention_layer *            23670   194    68    50
+bwave_like.fixed.small *     26647   170   140    53
+tpu_like.small.os *          27413    32   144    54
+tpu_like.small.ws            30300    58   145    57
+dla_like.small               93939   168    97    97
+lstm                         95679   308   328    98
+dnnweaver                   114434  1221   528   107
+clstm_like.small            175340   242   177   132
+gemm_layer                  396250     0   200   197

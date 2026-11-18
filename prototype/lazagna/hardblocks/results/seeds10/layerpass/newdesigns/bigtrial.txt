@@ -1,0 +1,31 @@
+Experiment E: one trial each of lstm and dla_like.small (run_bigtrial.sh), 2026-11-17 22:14-22:49
+The trial of newdesigns_rule.txt (run_newdesigns.sh TRIAL=1: seed 1, split fabric, pass off, k = 1.0
+SPICE delays, routed clocks, VPR's minimum-width search, then the route at 1.3x the minimum, VPR
+under /usr/bin/time -l), each VPR step allowed 8 hours and the whole trial stopped at 8 hours (not
+reached). After the E sweep, with no other VPR jobs: the two designs ran at the same time, one VPR
+each, so each time includes the other running alongside. Mac (48 GiB). GiB = 2^30 bytes.
+
+design            step                    wall time         peak memory (max RSS)   result
+lstm              width search            1871.7 s (31.2 min)   7.23 GiB            min 132 tracks
+lstm              route at 1.3x (172)      198.3 s ( 3.3 min)   3.72 GiB            routed, 28.2262 ns
+lstm              total                   2070.1 s (34.5 min)
+dla_like.small    width search            1391.1 s (23.2 min)   7.34 GiB            min 110 tracks
+dla_like.small    route at 1.3x (144)      166.9 s ( 2.8 min)   3.36 GiB            routed, 25.8443 ns
+dla_like.small    total                   1558.0 s (26.0 min)
+(the /usr/bin/time lines at the end of each run's min_width.log and run.log; lstm 95,679 LUTs,
+98 x 98 grid; dla_like.small 93,939 LUTs, 97 x 97. The per-minute ps samples, bigtrial_mem.tsv, peak
+at 5.59 and 5.01 GiB: sampling once a minute misses the peak, so /usr/bin/time is the figure.)
+
+Against newdesigns_rule.txt (30 minutes and 4 GB): both still fail on memory (7.2-7.3 GiB in the
+width search), and lstm on time (34.5 min). C stopped both at 19 minutes for memory; they route.
+
+What a full sweep would cost, if every setting costs what this one does (an assumption: stacked,
+2D and slower crossings were not timed). Per design, the 10 designs' full set (C plus E) is 400 VPR
+runs: 130 with a width search (routed clocks: split at 6 crossing points, stacked at 5, 2D,
+ablation) and 270 that only route at a known width (ideal clocks, pass-on, equal tracks).
+  lstm            130 x 34.5 min + 270 x 3.3 min = 89.6 VPR-hours  (C's set alone, 40 + 80 runs: 27.4)
+  dla_like.small  130 x 26.0 min + 270 x 2.8 min = 68.8 VPR-hours  (C's set alone: 21.0)
+Memory sets the parallelism: a width search peaks at about 7.3 GiB, so 5-6 at once on this Mac
+(12 at once, as the sweeps run, would need about 88 GiB). Both designs in full: 158.4 VPR-hours,
+about 26-32 hours of wall time at 6-5 at once, so about 1.5 days with checks and reruns; C's set
+alone about 8-10 hours. Runs may each go slower at 5-6 at once than here at 2.

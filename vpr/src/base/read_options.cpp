@@ -2146,6 +2146,14 @@ argparse::ArgumentParser create_arg_parser(const std::string& prog_name, t_optio
         .default_value("2")
         .show_in(argparse::ShowIn::HELP_ONLY);
 
+    pack_grp.add_argument(args.pack_criticality_file, "--pack_criticality_file")
+        .help(
+            "If set, writes the setup criticality of every atom connection (driver block, sink block,"
+            " criticality) from the packer's timing analysis to this file. Used by an external"
+            " post-pack pass; packing itself is unchanged.")
+        .default_value("")
+        .show_in(argparse::ShowIn::HELP_ONLY);
+
     pack_grp.add_argument<bool, ParseOnOff>(args.use_attraction_groups, "--use_attraction_groups")
         .help("Whether attraction groups are used to make it easier to pack primitives in the same floorplan region together.")
         .default_value("on")

@@ -1,0 +1,777 @@
+Timing-aware layer pass for the split CLB (branch layer-pass, 2026-11-16)
+
+Question. The split CLB's critical paths cross layers about 3 times, stacked's under 1, which is why
+slower crossings hurt the split. Ismael: VPR packs the split CLB's LUTs without regard to layer. Does a
+post-pack pass that picks each FLE's layer by timing cut those crossings, and does the worst-case
+edge over stacked (1.62x crossings plus the budgeted layout's pin-path cost) move?
+Follow-ups (2026-11-17), at the end: A the failed runs rerun with more router iterations; B the
+pass at 2.24x, 2.72x (LaZagna's default) and 3.0x; C three Koios designs the pass has never seen;
+D the rewritten packing through OpenFPGA and simulation; E all 10 designs at every setting (C's 3
+added at the other crossing delays, against 2D, in the ablation and at equal tracks) and a trial of
+lstm and dla_like.small.
+
+The pass (prototype/lazagna/layer_pass.py; TECHNICAL_MAP 1.2 and 2.4). After VPR packs, it moves
+FLEs between each split CLB's two layers, keeping 10 FLE slots and 40 input pins per layer (each
+layer's crossbar reads only its own pins; feedback reaches every FLE, so the crossbar is never the
+limit). Cost per connection between two FLEs: (packer setup criticality)^8 x the crossing delay it
+would pay, the in-CLB crossbar crossing inside a CLB or the routing crossing between CLBs, both read
+from the arch. The criticality comes from VPR's own packer timing analysis, written by the new
+--pack_criticality_file. RAM, DSP and IO connections count nothing (the placer picks their layer).
+Search: best-gain moves and swaps per CLB, other CLBs fixed, repeated over all CLBs until a sweep
+gains nothing (3-6 sweeps, about 2 s for conv_layer). CLBs where the packer ran a signal through
+an empty FLE (LUT in wire mode, used when one layer's 40 pins are full: 5 of 615 CLBs in
+eltwise_layer, none in conv_layer) are left as packed. Both crossing delays scale with k, so the
+pass makes the same choice at every k; only what each removed crossing is worth changes.
+
+Method (run_layerpass.sh). The split fabric only, 7 Koios designs x 10 seeds, routed and ideal
+clocks, at k = 1.0 (SPICE, the headline), 1.62 and 1.62 + pins. Every run is its committed pass-off
+twin with only --layer-pass added: same arch, seed, and the twin's exact track count (--widths), so
+the layer assignment is the one thing that changes. Stacked cannot use the pass (one CLB per layer);
+its rows are the committed ones. Mac, 12 VPR runs at a time.
+
+Checks with the pass off (before trusting anything):
+- New VPR, option off: conv_layer s1 at 1.62x routed gives 21.7525 ns, wirelength 227507 at width
+  142, the committed row. Packing with the criticality file written gives a byte-identical .net;
+  packing, then placing and routing separately, gives the same 21.7525 ns and 227507.
+- compare_2d_3d.py with the new flags, pass off, width from the CSV: conv_layer and spmv s1 at 1.0x
+  routed reproduce their headline rows exactly (19.8798 ns / 225817; 15.7643 ns / 122137).
+- layerpass_table.py pointed at ../crossings reproduces crossings_table.txt (0.964 / 0.957 at 1.62x,
+  0.982 / 0.970 with pins).
+- The pass checks every rewrite: each FLE reads the same nets and FLEs at the same inputs as before,
+  through its own layer's crossbar and pins.
+
+== Step 1: are the crossings on the top paths avoidable? (measure_avoidable.py; conv_layer and
+eltwise_layer seed 1 at 1.62x, rerun with every output kept; all 8 runs equal their committed rows.)
+Almost every CLB is full (conv_layer: 1030 of 1069 CLBs hold 10 + 10 FLEs), so "free slot" moves
+barely exist and any fix swaps FLEs. Per-crossing check: every crossing on the top 10 paths has a
+free slot or a swap partner on the other layer that is on none of those paths. Joint check ("unique ... -> ..."):
+per CLB, all its top-path FLEs re-placed at once (10 per layer), other CLBs fixed: most crossings
+on these paths go away, path 1's crossing delay 2493 -> 0 ps (conv, routed). An upper bound: it
+ignores every connection off these paths, and placement and routing change. Enough to build the pass.
+== k162_route/split conv_layer_1_hbcolumns   (21.7525 ns)
+mean per path: conns 13.8  intra 9.2  in-CLB crossings 2.60  inter 4.6  routing crossings 3.60
+in-CLB crossings: 26 (free slot 0, swap 26, no 0)
+routing-crossing connections: 36 (free slot 0, swap 36, no 0, both ends hard/io 0; one end hard/io 0)
+unique top-path connections crossing: in-CLB 9 -> 2, routing 8 -> 0; crossing delay on path 1 2493 -> 0 ps
+== k162_route/split eltwise_layer_1_hbcolumns   (14.2918 ns)
+mean per path: conns 5.9  intra 1.1  in-CLB crossings 0.30  inter 4.8  routing crossings 3.30
+in-CLB crossings: 3 (free slot 0, swap 3, no 0)
+routing-crossing connections: 33 (free slot 0, swap 33, no 0, both ends hard/io 0; one end hard/io 2)
+unique top-path connections crossing: in-CLB 3 -> 0, routing 17 -> 5; crossing delay on path 1 212 -> 0 ps
+== k162_ideal/split conv_layer_1_hbcolumns_clkideal   (21.1603 ns)
+mean per path: conns 14.7  intra 12.1  in-CLB crossings 1.90  inter 2.6  routing crossings 1.90
+in-CLB crossings: 19 (free slot 0, swap 19, no 0)
+routing-crossing connections: 19 (free slot 0, swap 19, no 0, both ends hard/io 0; one end hard/io 0)
+unique top-path connections crossing: in-CLB 9 -> 4, routing 10 -> 2; crossing delay on path 1 1733 -> 761 ps
+== k162_ideal/split eltwise_layer_1_hbcolumns_clkideal   (14.5223 ns)
+mean per path: conns 4.3  intra 1.0  in-CLB crossings 0.00  inter 3.3  routing crossings 2.70
+in-CLB crossings: 0 (free slot 0, swap 0, no 0)
+routing-crossing connections: 27 (free slot 18, swap 9, no 0, both ends hard/io 0; one end hard/io 9)
+unique top-path connections crossing: in-CLB 0 -> 0, routing 11 -> 3; crossing delay on path 1 846 -> 423 ps
+== k162_route/stack conv_layer_1_hbcolumns   (23.3691 ns)
+mean per path: conns 14.3  intra 5.9  in-CLB crossings 0.00  inter 8.4  routing crossings 0.80
+in-CLB crossings: 0 (free slot 0, swap 0, no 0)
+routing-crossing connections: 0 (free slot 0, swap 0, no 0, both ends hard/io 0; one end hard/io 0)
+== k162_route/stack eltwise_layer_1_hbcolumns   (14.167 ns)
+mean per path: conns 7.1  intra 1.1  in-CLB crossings 0.00  inter 6.0  routing crossings 0.70
+in-CLB crossings: 0 (free slot 0, swap 0, no 0)
+routing-crossing connections: 0 (free slot 0, swap 0, no 0, both ends hard/io 0; one end hard/io 0)
+== k162_ideal/stack conv_layer_1_hbcolumns_clkideal   (23.1717 ns)
+mean per path: conns 14.5  intra 7.0  in-CLB crossings 0.00  inter 7.5  routing crossings 0.10
+in-CLB crossings: 0 (free slot 0, swap 0, no 0)
+routing-crossing connections: 0 (free slot 0, swap 0, no 0, both ends hard/io 0; one end hard/io 0)
+== k162_ideal/stack eltwise_layer_1_hbcolumns_clkideal   (14.1951 ns)
+mean per path: conns 6.6  intra 1.3  in-CLB crossings 0.00  inter 5.3  routing crossings 0.30
+in-CLB crossings: 0 (free slot 0, swap 0, no 0)
+routing-crossing connections: 0 (free slot 0, swap 0, no 0, both ends hard/io 0; one end hard/io 0)
+
+== Result: split over stacked, with and without the pass (layerpass_table.py .)
+off = committed split; on = split with the pass; control = split with every FLE kept on its layer
+but given a random slot within it (layer_pass.py --control): the same kind of change to VPR's input,
+with no crossing removed. "min max" = per-seed geomean range. 5 of 560 runs here did not route at
+their width (1 overused node after the router's 50 iterations), each dropping one seed: pass on
+k100 routed eltwise s6, k162 routed robot_rl s2, k162pin routed conv_layer s8 and robot_rl s9;
+control ideal eltwise s10. The pass-off sets compared have 1 such run in 420 (k162 ideal eltwise s7).
+== ideal clocks
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+k = 1.00 (SPICE): off / stacked   0.936    0.953    7/7    0.936 (7)   0.017  0.908  0.962  attent 0.969 bwave 0.988 conv 0.838 eltwis 0.975 robot 0.943 spmv 0.926 tpu 0.920
+k = 1.00 (SPICE): on / stacked   0.924    0.940    7/7    0.924 (7)   0.012  0.904  0.942  attent 0.983 bwave 0.982 conv 0.833 eltwis 0.953 robot 0.940 spmv 0.892 tpu 0.895
+k = 1.00 (SPICE): on / off       0.988    0.986    6/7    0.988 (7)   0.017  0.966  1.016  attent 1.015 bwave 0.994 conv 0.995 eltwis 0.977 robot 0.997 spmv 0.964 tpu 0.972
+k = 1.62: off / stacked          0.964    0.978    5/7    0.955 (6)   0.022  0.921  0.994  attent 0.980 bwave 1.001 conv 0.880 eltwis 1.019[9] robot 0.964 spmv 0.947 tpu 0.962
+k = 1.62: on / stacked           0.938    0.956    6/7    0.938 (7)   0.014  0.915  0.960  attent 0.989 bwave 1.001 conv 0.838 eltwis 0.979 robot 0.958 spmv 0.925 tpu 0.891
+k = 1.62: on / off               0.974    0.978    6/7    0.976 (6)   0.017  0.949  1.002  attent 1.010 bwave 1.000 conv 0.952 eltwis 0.965[9] robot 0.993 spmv 0.977 tpu 0.926
+k = 1.62: control / off          1.006    1.005    3/7    1.007 (6)   0.014  0.983  1.028  attent 0.993 bwave 1.006 conv 1.013 eltwis 0.999[8] robot 1.000 spmv 1.015 tpu 1.017
+k = 1.62: on / control           0.968    0.973    6/7    0.969 (6)   0.015  0.941  0.995  attent 1.017 bwave 0.994 conv 0.940 eltwis 0.965[9] robot 0.994 spmv 0.963 tpu 0.911
+k = 1.62 + pins: off / stacked   0.982    1.002    5/7    0.982 (7)   0.020  0.950  1.023  attent 0.999 bwave 1.026 conv 0.874 eltwis 1.053 robot 0.972 spmv 0.987 tpu 0.976
+k = 1.62 + pins: on / stacked    0.952    0.972    6/7    0.952 (7)   0.013  0.923  0.966  attent 0.997 bwave 1.001 conv 0.843 eltwis 0.991 robot 0.964 spmv 0.942 tpu 0.937
+k = 1.62 + pins: on / off        0.970    0.970    7/7    0.970 (7)   0.013  0.940  0.982  attent 0.998 bwave 0.976 conv 0.965 eltwis 0.941 robot 0.992 spmv 0.955 tpu 0.961
+
+== routed clocks
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+k = 1.00 (SPICE): off / stacked   0.944    0.967    5/7    0.944 (7)   0.015  0.913  0.963  attent 0.953 bwave 1.004 conv 0.816 eltwis 1.018 robot 0.951 spmv 0.969 tpu 0.913
+k = 1.00 (SPICE): on / stacked   0.940    0.963    5/7    0.929 (6)   0.026  0.890  0.985  attent 0.965 bwave 1.001 conv 0.813 eltwis 1.006[9] robot 0.947 spmv 0.942 tpu 0.918
+k = 1.00 (SPICE): on / off       0.995    0.995    5/7    0.997 (6)   0.020  0.971  1.031  attent 1.013 bwave 0.997 conv 0.997 eltwis 0.984[9] robot 0.996 spmv 0.972 tpu 1.006
+                              pass-on runs that failed: eltwise_layer s6
+k = 1.62: off / stacked          0.957    0.977    5/7    0.957 (7)   0.032  0.913  1.001  attent 0.978 bwave 1.017 conv 0.845 eltwis 1.042 robot 0.974 spmv 0.966 tpu 0.892
+k = 1.62: on / stacked           0.933    0.957    5/7    0.930 (6)   0.027  0.895  0.979  attent 0.993 bwave 1.034 conv 0.799 eltwis 1.015 robot 0.950[9] spmv 0.932 tpu 0.835
+k = 1.62: on / off               0.974    0.978    5/7    0.975 (6)   0.028  0.923  1.020  attent 1.015 bwave 1.016 conv 0.946 eltwis 0.974 robot 0.966[9] spmv 0.965 tpu 0.937
+                              pass-on runs that failed: robot_rl s2
+k = 1.62: control / off          1.000    0.999    2/7    1.000 (7)   0.015  0.974  1.024  attent 0.984 bwave 1.006 conv 1.008 eltwis 1.007 robot 1.010 spmv 1.007 tpu 0.983
+k = 1.62: on / control           0.973    0.979    5/7    0.976 (6)   0.019  0.939  0.999  attent 1.032 bwave 1.010 conv 0.938 eltwis 0.968 robot 0.956[9] spmv 0.959 tpu 0.953
+k = 1.62 + pins: off / stacked   0.970    0.990    5/7    0.970 (7)   0.023  0.942  1.004  attent 0.982 bwave 1.049 conv 0.858 eltwis 1.048 robot 0.985 spmv 0.970 tpu 0.912
+k = 1.62 + pins: on / stacked    0.955    0.977    3/7    0.970 (5)   0.029  0.898  0.996  attent 1.017 bwave 1.015 conv 0.834[9] eltwis 1.029 robot 1.010[9] spmv 0.942 tpu 0.860
+k = 1.62 + pins: on / off        0.985    0.986    5/7    0.979 (5)   0.024  0.952  1.024  attent 1.035 bwave 0.968 conv 0.977[9] eltwis 0.982 robot 1.020[9] spmv 0.971 tpu 0.943
+                              pass-on runs that failed: conv_layer s8, robot_rl s9
+
+== Layer crossings per critical path (path_xings.py; mean over runs; in-CLB = crossbar feedback
+paying the crossing, routing = layer changes along the route, as hb_paths.py). Pass-off and stacked
+from the runs behind the committed rows (each run's CPD checked against its CSV row); at 1.0x only
+the ideal-clock reports of 50 runs were kept, so the pass-on count is also given for those 50.
+                                   runs  path 1: in-CLB  routing  total  top 10: in-CLB  routing  total   CPD = CSV row
+k100 ideal split off                 50            0.78     2.62   3.40            0.87     2.54   3.41   50 of 50
+k100 ideal stacked                   50            0.00     0.78   0.78            0.00     0.80   0.80   50 of 50
+k162 ideal split off                 69            1.07     2.91   3.99            1.06     2.83   3.88   69 of 69
+k162 ideal stacked                   70            0.00     0.59   0.59            0.00     0.65   0.65   70 of 70
+k162 route split off                 70            1.07     2.21   3.29            1.01     2.40   3.41   70 of 70
+k162 route stacked                   70            0.00     0.57   0.57            0.00     0.60   0.60   70 of 70
+k162pin ideal split off              70            1.13     3.00   4.13            1.08     2.95   4.04   70 of 70
+k162pin route split off              70            1.06     2.56   3.61            1.02     2.51   3.53   70 of 70
+k100 ideal split on                  70            0.61     1.66   2.27            0.65     1.64   2.29   70 of 70
+k100 ideal split on, same 50 runs    50            0.56     1.90   2.46            0.61     1.72   2.32   50 of 50
+k100 route split on                  69            0.61     0.96   1.57            0.60     1.01   1.61   69 of 69 (1 not routed, left out)
+k162 ideal split on                  70            0.86     1.87   2.73            0.76     1.67   2.43   70 of 70
+k162 route split on                  69            0.67     1.12   1.78            0.60     1.13   1.74   69 of 69 (1 not routed, left out)
+k162pin ideal split on               70            0.84     1.84   2.69            0.74     1.72   2.46   70 of 70
+k162pin route split on               68            0.68     1.35   2.03            0.66     1.32   1.99   68 of 68 (2 not routed, left out)
+k162 ideal split control             69            1.17     2.94   4.12            1.05     2.79   3.84   69 of 69 (1 not routed, left out)
+k162 route split control             70            1.14     2.44   3.59            1.02     2.41   3.43   70 of 70
+
+== Wirelength, pass on / off (compare_configs.py --column wirelength; same widths)
+wirelength k100_route on/off          1.002     2/6     1.007 0.997 0.996 1.001 0.999 1.011 1.001 1.004 0.994 1.006  (1 runs failed)
+wirelength k100_ideal on/off          1.001     5/7     1.003 1.002 1.008 1.002 0.998 0.998 0.998 1.002 0.994 1.006
+wirelength k162_route on/off          0.997     4/6     0.992 1.001 0.994 1.010 1.003 0.998 0.991 1.005 0.989 0.985  (1 runs failed)
+wirelength k162_ideal on/off          0.999     3/6     0.998 0.997 1.006 0.994 1.003 0.997 1.003 1.004 0.993 0.996
+wirelength k162pin_route on/off       0.999     2/5     0.997 1.009 0.993 1.008 0.986 0.996 1.010 0.994 1.005 0.994  (2 runs failed)
+wirelength k162pin_ideal on/off       0.996     4/7     1.001 0.994 1.000 1.003 0.997 0.997 0.999 0.995 0.985 0.993
+
+== What the pass did per design at 1.62x routed (pass_stats.py; every run: layer_pass_stats.tsv).
+cost = the pass's own weighted crossing cost after / before; crit>=0.9 = connections the packer
+rates critical that cross layers, inside CLBs and between CLBs, before -> after (means over seeds).
+The other sets give the same numbers: same packing, same choice.
+set            design                   runs  cost after/before  FLE moves/CLB as packed   crit>=0.9 in-CLB   between CLBs
+k162_route     attention_layer            10              0.691           3.44       3.0      381 ->  289     566 ->  330
+k162_route     bwave_like.fixed.small     10              0.658           2.64      13.0       29 ->   13      66 ->   53
+k162_route     conv_layer                 10              0.581           4.97       0.0      390 ->  213     545 ->  360
+k162_route     eltwise_layer              10              0.592           5.02       5.0      412 ->  259     344 ->  156
+k162_route     robot_rl                   10              0.521           5.86       0.0       59 ->   37      25 ->    5
+k162_route     spmv                       10              0.504           5.10       1.0      212 ->   86     205 ->   91
+k162_route     tpu_like.small.os          10              0.520           5.07       0.0      320 ->  287    1620 ->   88
+
+== Reading
+- The worst-case edge moved. At 1.62x + pins, split over stacked goes from 0.982 to 0.952 with ideal
+  clocks (1.8% -> 4.8% faster, 6/7 designs, every seed's geomean below 1: 0.923-0.966) and from
+  0.970 to 0.955 routed (3.0% -> 4.5%). Without conv_layer: 1.002 -> 0.972 and 0.990 -> 0.977, so
+  the tie becomes a 2.8% / 2.3% edge.
+- Routed clocks are the weak spot: at 1.62x + pins only 3/7 designs beat stacked with the pass
+  (5/7 without). bwave_like and eltwise_layer improve but stay slower (1.049 -> 1.015, 1.048 ->
+  1.029), attention_layer and robot_rl turn slower (0.982 -> 1.017, 0.985 -> 1.010). And
+  compare_configs.py's rule (drop any design with a failed run: conv_layer and robot_rl here) gives
+  0.970 with or without the pass. (Superseded by A below: with the failed runs rerun at 200 router
+  iterations nothing is dropped, 0.954, and 4/7 designs beat stacked.)
+- Over the defended range (1.0-1.62x) with the pass: 0.924-0.938 ideal, 0.933-0.940 routed, i.e.
+  6.2-7.6% and 6.0-6.7% (without conv_layer 0.940-0.956, 0.957-0.963). The pass is worth more as
+  crossings get slower: on / off 0.988 at 1.0x, 0.974 at 1.62x, 0.970 at 1.62x + pins (ideal).
+- It is the layers, not the reshuffle: the control (same rewrite, no FLE changes layer) gives 1.006
+  ideal / 1.000 routed, and the pass beats the control by 0.968 / 0.973. Wirelength is unchanged
+  (0.996-1.002), tracks are the same, and the pass nearly halves the crossings on the critical path
+  at 1.62x routed (3.29 -> 1.78; stacked 0.57) and cuts them by about a third with ideal clocks
+  (3.99 -> 2.73; stacked 0.59).
+- attention_layer gets slightly slower with the pass in 5 of 6 sets (on / off 1.010-1.035; 0.998 at
+  1.62x + pins ideal; 1.017 / 1.032 against the control at 1.62x), though its packer-critical
+  crossings drop (566 -> 330 between CLBs).
+  Likely cause, not tested: its critical paths run through RAM/DSP, whose connections the pass
+  ignores, and the packer's timing model (one fixed delay per net) does not rank them well.
+- What is still not done: the pass does not change which LUTs share a CLB (packing itself is
+  still layer-blind), ignores hard-block and IO connections, and uses the packer's coarse
+  criticality. The split's critical path still crosses 3-5 times as often as stacked's (1.78 vs
+  0.57 routed, 2.73 vs 0.59 ideal, at 1.62x).
+
+
+######## Follow-up experiments A-E (2026-11-17). The pass, its exponent and its settings are the
+######## ones above, unchanged; nothing below was tuned on a result.
+
+== A. The runs that did not route (run_failed.sh; rows in iter200/, table: layerpass_table.py . --fill)
+6 runs of the comparison above ended VPR's default 50 router iterations with 1 overused routing node
+(iter200/router_iterations.txt): pass-on k100 routed eltwise_layer s6, k162 routed robot_rl s2,
+k162pin routed conv_layer s8 and robot_rl s9; control k162 ideal eltwise_layer s10; pass-off k162
+ideal eltwise_layer s7. Every other pass-on and control run routed in 11-27 iterations. Each of the 6
+reran with --max_router_iterations 200 (the same limit for pass-on, control and pass-off), at its
+committed track count, nothing else changed.
+
+Check first: three runs that had routed, rerun with the same limit of 200, give exactly their
+committed rows (width, CPD, wirelength), so the higher limit does not change runs that converged:
+  pass-on  k162 routed spmv s3 (27 iterations, the most of any routed run)   118  17.8422 ns  121162
+  pass-on  k100 ideal spmv s1 (19)                                          124  15.2262 ns  118672
+  pass-off k162 routed eltwise_layer s7 (17; twin of the failed pass-off)   182  15.4261 ns  150765
+
+All 6 route with 200 (width, CPD, wirelength, router iterations):
+  pass-on  k100 routed eltwise_layer s6      178  14.1479 ns  149428  106
+  pass-on  k162 routed robot_rl s2            94  20.6967 ns  164461  106
+  pass-on  k162pin routed conv_layer s8      146  21.199 ns   225317  111
+  pass-on  k162pin routed robot_rl s9         92  19.3891 ns  165147  111
+  control  k162 ideal eltwise_layer s10      180  15.0024 ns  142247  115
+  pass-off k162 ideal eltwise_layer s7       182  14.4658 ns  144074   95
+
+With the 6 rows filled in (the original rows above are unchanged; only failed rows are replaced):
+== ideal clocks (failed runs rerun at 200 router iterations, --fill)
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+k = 1.00 (SPICE): off / stacked   0.936    0.953    7/7    0.936 (7)   0.017  0.908  0.962  attent 0.969 bwave 0.988 conv 0.838 eltwis 0.975 robot 0.943 spmv 0.926 tpu 0.920
+k = 1.00 (SPICE): on / stacked   0.924    0.940    7/7    0.924 (7)   0.012  0.904  0.942  attent 0.983 bwave 0.982 conv 0.833 eltwis 0.953 robot 0.940 spmv 0.892 tpu 0.895
+k = 1.00 (SPICE): on / off       0.988    0.986    6/7    0.988 (7)   0.017  0.966  1.016  attent 1.015 bwave 0.994 conv 0.995 eltwis 0.977 robot 0.997 spmv 0.964 tpu 0.972
+k = 1.62: off / stacked          0.964    0.978    5/7    0.964 (7)   0.020  0.934  0.994  attent 0.980 bwave 1.001 conv 0.880 eltwis 1.019 robot 0.964 spmv 0.947 tpu 0.962
+k = 1.62: on / stacked           0.938    0.956    6/7    0.938 (7)   0.014  0.915  0.960  attent 0.989 bwave 1.001 conv 0.838 eltwis 0.979 robot 0.958 spmv 0.925 tpu 0.891
+k = 1.62: on / off               0.974    0.977    6/7    0.974 (7)   0.016  0.949  1.002  attent 1.010 bwave 1.000 conv 0.952 eltwis 0.961 robot 0.993 spmv 0.977 tpu 0.926
+k = 1.62: control / off          1.006    1.005    3/7    1.006 (7)   0.014  0.983  1.028  attent 0.993 bwave 1.006 conv 1.013 eltwis 0.999 robot 1.000 spmv 1.015 tpu 1.017
+k = 1.62: on / control           0.968    0.973    6/7    0.968 (7)   0.015  0.941  0.995  attent 1.017 bwave 0.994 conv 0.940 eltwis 0.962 robot 0.994 spmv 0.963 tpu 0.911
+k = 1.62 + pins: off / stacked   0.982    1.002    5/7    0.982 (7)   0.020  0.950  1.023  attent 0.999 bwave 1.026 conv 0.874 eltwis 1.053 robot 0.972 spmv 0.987 tpu 0.976
+k = 1.62 + pins: on / stacked    0.952    0.972    6/7    0.952 (7)   0.013  0.923  0.966  attent 0.997 bwave 1.001 conv 0.843 eltwis 0.991 robot 0.964 spmv 0.942 tpu 0.937
+k = 1.62 + pins: on / off        0.970    0.970    7/7    0.970 (7)   0.013  0.940  0.982  attent 0.998 bwave 0.976 conv 0.965 eltwis 0.941 robot 0.992 spmv 0.955 tpu 0.961
+
+== routed clocks (failed runs rerun at 200 router iterations, --fill)
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+k = 1.00 (SPICE): off / stacked   0.944    0.967    5/7    0.944 (7)   0.015  0.913  0.963  attent 0.953 bwave 1.004 conv 0.816 eltwis 1.018 robot 0.951 spmv 0.969 tpu 0.913
+k = 1.00 (SPICE): on / stacked   0.939    0.962    5/7    0.939 (7)   0.026  0.890  0.985  attent 0.965 bwave 1.001 conv 0.813 eltwis 1.002 robot 0.947 spmv 0.942 tpu 0.918
+k = 1.00 (SPICE): on / off       0.995    0.995    5/7    0.995 (7)   0.020  0.971  1.031  attent 1.013 bwave 0.997 conv 0.997 eltwis 0.985 robot 0.996 spmv 0.972 tpu 1.006
+k = 1.62: off / stacked          0.957    0.977    5/7    0.957 (7)   0.032  0.913  1.001  attent 0.978 bwave 1.017 conv 0.845 eltwis 1.042 robot 0.974 spmv 0.966 tpu 0.892
+k = 1.62: on / stacked           0.932    0.956    5/7    0.932 (7)   0.027  0.895  0.979  attent 0.993 bwave 1.034 conv 0.799 eltwis 1.015 robot 0.941 spmv 0.932 tpu 0.835
+k = 1.62: on / off               0.974    0.978    5/7    0.974 (7)   0.028  0.923  1.020  attent 1.015 bwave 1.016 conv 0.946 eltwis 0.974 robot 0.966 spmv 0.965 tpu 0.937
+k = 1.62: control / off          1.000    0.999    2/7    1.000 (7)   0.015  0.974  1.024  attent 0.984 bwave 1.006 conv 1.008 eltwis 1.007 robot 1.010 spmv 1.007 tpu 0.983
+k = 1.62: on / control           0.973    0.979    5/7    0.973 (7)   0.019  0.939  0.999  attent 1.032 bwave 1.010 conv 0.938 eltwis 0.968 robot 0.957 spmv 0.959 tpu 0.953
+k = 1.62 + pins: off / stacked   0.970    0.990    5/7    0.970 (7)   0.023  0.942  1.004  attent 0.982 bwave 1.049 conv 0.858 eltwis 1.048 robot 0.985 spmv 0.970 tpu 0.912
+k = 1.62 + pins: on / stacked    0.954    0.974    4/7    0.954 (7)   0.031  0.893  0.996  attent 1.017 bwave 1.015 conv 0.842 eltwis 1.029 robot 0.995 spmv 0.942 tpu 0.860
+k = 1.62 + pins: on / off        0.984    0.985    5/7    0.984 (7)   0.024  0.948  1.024  attent 1.035 bwave 0.968 conv 0.981 eltwis 0.982 robot 1.011 spmv 0.971 tpu 0.943
+
+Reading (A)
+- Weak spot first: the 6 runs needed 95-115 router iterations where every other run took 11-27,
+  and the pass-on side had more of them (5 of 560 pass-on and control runs, 1 of 420 pass-off). So
+  a rewritten netlist is somewhat more likely to leave one stubborn congested node at 50 iterations;
+  at 200 every one routes.
+- The worst corner (1.62x + pins, routed): split over stacked with the pass 0.955 -> 0.954 (no conv
+  0.977 -> 0.974). compare_configs.py's rule (drop any design with a failed run) goes from 0.970 on
+  5 designs to 0.954 on all 7, so the earlier "0.970 with or without the pass" no longer holds: it
+  came from dropping conv_layer (the split's best design) and robot_rl. Designs faster than
+  stacked: 3/7 -> 4/7 (robot_rl 1.010 on 9 seeds -> 0.995 on 10; conv_layer 0.834 -> 0.842).
+- Everywhere else the geomeans move by at most 0.001 and the "drop design" column becomes the plain
+  geomean: k100 routed on / stacked 0.929 (6 designs) -> 0.939 (7); k162 routed 0.930 (6) -> 0.932;
+  pass-off k162 ideal 0.955 (6) -> 0.964 (7).
+
+== B. The pass at slower crossings: k = 2.24, 2.72 and 3.0 (run_layerpass.sh SETS="k224 k272", then
+SETS=k300; control: CONTROL=1 CK=k272; table: layerpass_table.py . --fill; pass stats:
+layer_pass_stats_b.tsv)
+Exactly as the points above: each pass-on run is its committed pass-off twin in ../crossings
+(k<NNN>_{route,ideal}/split: same arch, seed and track count) with --layer-pass added; stacked is
+../crossings/k<NNN>_*/stack. 2.72x puts the routing crossing at LaZagna's default. 3.0x was added
+after 2.72x came out faster with the pass, to find where break-even now lies; it is the slowest point
+with committed rows. Checks first: pass-off eltwise_layer s1 at 2.72x and robot_rl s1 at 3.0x, routed,
+rerun at their committed widths, give exactly their committed rows (194, 15.5498 ns, 149743; 102,
+22.1972 ns, 159559). 2 of the 560 new runs did not route within 50 router iterations (pass-on 2.72x
+routed spmv s5 and attention_layer s8); both route with 200 (run_failed.sh K272=1: width 120,
+17.7653 ns, 122604, 102 iterations; width 120, 23.6801 ns, 327925, 99 iterations). The rows below
+have them filled in; without them, routed 2.72x on / stacked is the same 0.974 (0.970 on 5 designs
+under the drop-design rule). At every k the pass makes exactly the choice it makes at 1.62x: all 420
+pass-on runs at 2.24x, 2.72x and 3.0x have the same FLE moves and the same critical crossings before
+and after as k162_route (layer_pass_stats_b.tsv against layer_pass_stats.tsv), since both crossing
+delays scale together; only what each removed crossing is worth changes.
+== ideal clocks (failed runs rerun at 200 router iterations, --fill)
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+k = 2.24: off / stacked          0.985    0.998    4/7    0.985 (7)   0.026  0.945  1.018  attent 0.994 bwave 1.004 conv 0.911 eltwis 1.056 robot 1.001 spmv 0.945 tpu 0.989
+k = 2.24: on / stacked           0.949    0.965    6/7    0.949 (7)   0.024  0.914  0.986  attent 0.999 bwave 1.017 conv 0.860 eltwis 1.000 robot 0.950 spmv 0.912 tpu 0.918
+k = 2.24: on / off               0.964    0.967    5/7    0.964 (7)   0.007  0.953  0.975  attent 1.005 bwave 1.014 conv 0.944 eltwis 0.946 robot 0.949 spmv 0.965 tpu 0.928
+k = 2.72: off / stacked          1.008    1.019    2/7    1.008 (7)   0.013  0.989  1.029  attent 1.009 bwave 1.016 conv 0.946 eltwis 1.094 robot 1.007 spmv 0.972 tpu 1.020
+k = 2.72: on / stacked           0.953    0.968    5/7    0.953 (7)   0.018  0.921  0.976  attent 1.001 bwave 0.995 conv 0.866 eltwis 1.017 robot 0.954 spmv 0.925 tpu 0.923
+k = 2.72: on / off               0.945    0.950    7/7    0.945 (7)   0.010  0.931  0.958  attent 0.993 bwave 0.979 conv 0.915 eltwis 0.929 robot 0.947 spmv 0.952 tpu 0.905
+k = 2.72: control / off          0.997    0.995    3/7    0.997 (7)   0.006  0.989  1.006  attent 1.009 bwave 0.996 conv 1.004 eltwis 0.972 robot 1.003 spmv 1.002 tpu 0.991
+k = 2.72: on / control           0.948    0.955    7/7    0.948 (7)   0.010  0.932  0.964  attent 0.984 bwave 0.982 conv 0.911 eltwis 0.957 robot 0.944 spmv 0.950 tpu 0.913
+k = 3.00: off / stacked          1.018    1.035    2/7    1.018 (7)   0.016  0.998  1.046  attent 1.015 bwave 1.046 conv 0.925 eltwis 1.098 robot 1.017 spmv 0.981 tpu 1.056
+k = 3.00: on / stacked           0.980    1.000    4/7    0.980 (7)   0.017  0.952  1.006  attent 1.017 bwave 1.058 conv 0.869 eltwis 1.027 robot 0.981 spmv 0.960 tpu 0.962
+k = 3.00: on / off               0.963    0.967    5/7    0.963 (7)   0.015  0.950  0.988  attent 1.002 bwave 1.012 conv 0.939 eltwis 0.935 robot 0.965 spmv 0.979 tpu 0.911
+== routed clocks (failed runs rerun at 200 router iterations, --fill)
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+k = 2.24: off / stacked          0.973    0.986    4/7    0.973 (7)   0.036  0.916  1.027  attent 0.989 bwave 1.026 conv 0.901 eltwis 1.037 robot 1.004 spmv 0.973 tpu 0.892
+k = 2.24: on / stacked           0.949    0.966    6/7    0.949 (7)   0.024  0.912  0.986  attent 0.995 bwave 1.015 conv 0.853 eltwis 0.994 robot 0.996 spmv 0.924 tpu 0.881
+k = 2.24: on / off               0.976    0.980    6/7    0.976 (7)   0.015  0.957  0.997  attent 1.006 bwave 0.989 conv 0.947 eltwis 0.958 robot 0.992 spmv 0.950 tpu 0.988
+k = 2.72: off / stacked          1.008    1.017    3/7    1.008 (7)   0.022  0.978  1.043  attent 1.025 bwave 1.074 conv 0.952 eltwis 1.076 robot 1.002 spmv 0.974 tpu 0.958
+k = 2.72: on / stacked           0.974    0.988    4/7    0.974 (7)   0.023  0.945  1.002  attent 1.041 bwave 1.040 conv 0.896 eltwis 1.053 robot 0.965 spmv 0.932 tpu 0.905
+k = 2.72: on / off               0.967    0.971    6/7    0.967 (7)   0.018  0.941  0.994  attent 1.015 bwave 0.968 conv 0.941 eltwis 0.978 robot 0.963 spmv 0.958 tpu 0.945
+k = 2.72: control / off          0.999    0.998    3/7    0.999 (7)   0.013  0.980  1.015  attent 1.007 bwave 0.991 conv 1.002 eltwis 1.006 robot 0.997 spmv 1.015 tpu 0.975
+k = 2.72: on / control           0.968    0.973    6/7    0.968 (7)   0.014  0.939  0.983  attent 1.008 bwave 0.977 conv 0.940 eltwis 0.972 robot 0.966 spmv 0.944 tpu 0.970
+k = 3.00: off / stacked          1.017    1.026    3/7    1.017 (7)   0.030  0.978  1.076  attent 1.035 bwave 1.063 conv 0.964 eltwis 1.060 robot 1.015 spmv 0.994 tpu 0.990
+k = 3.00: on / stacked           0.979    0.997    4/7    0.979 (7)   0.026  0.940  1.026  attent 1.015 bwave 1.009 conv 0.883 eltwis 1.058 robot 0.985 spmv 0.948 tpu 0.968
+k = 3.00: on / off               0.963    0.971    7/7    0.963 (7)   0.020  0.918  0.988  attent 0.981 bwave 0.949 conv 0.916 eltwis 0.998 robot 0.971 spmv 0.954 tpu 0.977
+Reading (B)
+- Weak spots first. Routed at 2.72x the edge is modest: 0.974 with 4/7 designs faster
+  (attention_layer 1.041, bwave_like 1.040 and eltwise_layer 1.053 are slower), 0.988 without
+  conv_layer, and one seed's geomean is above stacked (max 1.002). At 3.0x without conv_layer it is a
+  tie (1.000 ideal, 0.997 routed) with 4/7 designs faster.
+- At LaZagna's default (2.72x), where split was 1.008 / 1.008 of stacked, the pass gives 0.953 ideal
+  / 0.974 routed (without conv_layer 1.019 -> 0.968, 1.017 -> 0.988). At 2.24x: 0.985 -> 0.949 ideal,
+  0.973 -> 0.949 routed (without conv_layer 0.998 -> 0.965, 0.986 -> 0.966). At 3.0x: 1.018 ->
+  0.980, 1.017 -> 0.979 (without conv_layer 1.035 -> 1.000, 1.026 -> 0.997).
+- Break-even: with the pass, the split stays faster than stacked at every crossing delay run, up to
+  3.0x, with all 7 designs (0.980 / 0.979 at 3.0x), so break-even now lies above 3.0x (it was
+  between 2.24x and 2.72x); without conv_layer it now ties at about 3.0x, where before it tied from
+  about 2.0x.
+- The pass is worth more as crossings slow: on / off 0.988 (1.0x), 0.974 (1.62x), 0.964 (2.24x),
+  0.945 (2.72x), 0.963 (3.0x) with ideal clocks; 0.995, 0.974, 0.976, 0.967, 0.963 routed. Not
+  monotonic (ideal 0.963 at 3.0x after 0.945 at 2.72x), so read about 1-2% as noise.
+- It is the layers, not the rewrite: the 2.72x control (no FLE changes layer) gives 0.997 ideal /
+  0.999 routed against pass-off, and the pass beats it by 0.948 / 0.968.
+
+== C. Designs the pass has never seen (run_newdesigns.sh; the list and its rule: newdesigns_rule.txt,
+written before any trial; sizes: koios_sizes.txt; CSVs: newdesigns/; table: newdesigns_table.py;
+pass stats: newdesigns/layer_pass_stats.tsv)
+Why the 7 were the 7: nothing written says. The hard-block study (HARDBLOCKS.md, 2026-11-09) started
+from 5 Koios designs with no stated reason and later added robot_rl and bwave_like.fixed.small as
+"the next ones by size". Size does not explain the rest: reduction_layer (10,300 LUTs) and softmax
+(22,684) are smaller than robot_rl (15,356) and bwave_like (26,647) respectively. One
+difference, a guess: each of the 7 has both RAM and DSP blocks; reduction_layer has no DSP and
+softmax no RAM (koios_sizes.txt), and a hard-block placement study needs both.
+The list: trials of reduction_layer, softmax, tpu_like.small.ws, lstm and dla_like.small (seed 1,
+split, k = 1.0, routed, width search plus route) against the rule "at most 30 minutes and 4 GB".
+The first three pass (2.7-5.9 minutes, at most 1.18 GB); lstm and dla_like.small both held more than
+4 GB 19 minutes into the width search and were stopped; the three bigger designs get no trial. So
+the list is reduction_layer, softmax and tpu_like.small.ws, reported in full below. tpu_like.small.ws
+is a close relative of tpu_like.small.os (one of the 7): the same 16x16 TPU-like Koios design, weight
+stationary instead of output stationary.
+Flow (as the 7): 10 seeds; stacked, split pass-off and split pass-on; routed and ideal clocks; at
+k = 1.0 (SPICE; stacked 3d10stack_w100) and at k = 1.62 + pins (the harshest corner; stacked at
+1.62x). Each fabric routes at 1.3x its own minimum (its own width search, routed clocks); ideal
+clocks reuse the routed widths; pass-on routes at its pass-off twin's width. Check first: the same
+script run on two of the 7 (spmv and conv_layer seed 1, split, k = 1.0, routed, width search
+included) gives exactly their committed headline rows (124, 15.7643 ns, 122137; 150, 19.8798 ns,
+225817).
+One fix to the flow during the run: prep_ideal.sh seeds ideal-clock runs only from routed runs that
+routed, so 3 ideal runs whose routed twin had failed ran their own width search (softmax s2 split at
+k = 1.0: 82 tracks against 78; stacked reduction_layer s6 at k = 1.0: 120 against 92;
+reduction_layer s7 split at 1.62x + pins: 138 against 128), which would have compared pass-on and
+pass-off at different widths. run_newdesigns.sh now seeds those too; the 3 were rerun at their
+routed twin's width (the stacked one routes, the two split ones fail as their routed twins did).
+A second fix, found while regenerating the CSVs after the first: compare_2d_3d.py reuses a finished
+run if its log has a final critical path delay, and with --analysis (--layer-pass, --relayer) VPR
+prints one even after a failed route, so the 2 failed pass-on runs of softmax s2 came back as
+routed. The reuse now checks for "Routing failed" too. Every other sweep here ran into fresh
+folders, so nothing else was reused (their failed runs are recorded as failed).
+Failures (7 of 360 runs): softmax s2 at k = 1.0 fails at width 78 with the pass off (routed and
+ideal) and on (routed and ideal); reduction_layer s7 at 1.62x + pins fails at 128 with the pass off
+(routed and ideal); stacked reduction_layer s6 at k = 1.0 fails routed. Rerun with 200 router
+iterations (run_failed.sh NEW=DIR), only the stacked one routes (66 iterations; --fill); the other
+6 still end with 3-18 overused nodes, so they are unroutable at that width, not short of
+iterations. Their seeds drop out of the pairs that need them (the [9] marks).
+"new" = the 3 designs; "all" = the 7 (committed rows, pass-on from k100_* and k162pin_* here) plus
+the 3. The tpu.ws column is tpu_like.small.ws.
+== ideal clocks
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+k100 new: off / stacked          0.987    0.987    2/3    0.970 (2)   0.031  0.957  1.044  reduct 0.961 softma 1.022[9] tpu.ws 0.980
+k100 new: on / stacked           0.963    0.963    3/3    0.949 (2)   0.030  0.923  1.008  reduct 0.952 softma 0.992[9] tpu.ws 0.946
+k100 new: on / off               0.976    0.976    3/3    0.978 (2)   0.027  0.939  1.028  reduct 0.991 softma 0.971[9] tpu.ws 0.965
+k100 all: off / stacked          0.951    0.964    9/10    0.943 (9)   0.016  0.920  0.972  attent 0.969 bwave 0.988 conv 0.838 eltwis 0.975 reduct 0.961 robot 0.943 softma 1.022[9] spmv 0.926 tpu 0.920 tpu.ws 0.980
+k100 all: on / stacked           0.936    0.948   10/10    0.930 (9)   0.010  0.920  0.952  attent 0.983 bwave 0.982 conv 0.833 eltwis 0.953 reduct 0.952 robot 0.940 softma 0.992[9] spmv 0.892 tpu 0.895 tpu.ws 0.946
+k100 all: on / off               0.984    0.983    9/10    0.986 (9)   0.014  0.962  1.005  attent 1.015 bwave 0.994 conv 0.995 eltwis 0.977 reduct 0.991 robot 0.997 softma 0.971[9] spmv 0.964 tpu 0.972 tpu.ws 0.965
+                              new designs, off runs that failed: softmax s2
+                              new designs, on runs that failed: softmax s2
+k162pin new: off / stacked       0.998    0.998    2/3    1.009 (2)   0.023  0.977  1.035  reduct 0.977[9] softma 1.054 tpu.ws 0.966
+k162pin new: on / stacked        1.003    1.003    1/3    1.003 (3)   0.044  0.954  1.073  reduct 1.019 softma 1.038 tpu.ws 0.955
+k162pin new: on / off            1.003    1.003    2/3    0.987 (2)   0.039  0.934  1.062  reduct 1.037[9] softma 0.985 tpu.ws 0.989
+k162pin all: off / stacked       0.987    1.000    7/10    0.988 (9)   0.016  0.968  1.021  attent 0.999 bwave 1.026 conv 0.874 eltwis 1.053 reduct 0.977[9] robot 0.972 softma 1.054 spmv 0.987 tpu 0.976 tpu.ws 0.966
+k162pin all: on / stacked        0.967    0.982    7/10    0.967 (10)   0.019  0.936  0.993  attent 0.997 bwave 1.001 conv 0.843 eltwis 0.991 reduct 1.019 robot 0.964 softma 1.038 spmv 0.942 tpu 0.937 tpu.ws 0.955
+k162pin all: on / off            0.980    0.981    9/10    0.973 (9)   0.014  0.960  1.003  attent 0.998 bwave 0.976 conv 0.965 eltwis 0.941 reduct 1.037[9] robot 0.992 softma 0.985 spmv 0.955 tpu 0.961 tpu.ws 0.989
+                              new designs, off runs that failed: reduction_layer s7
+
+== routed clocks
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+k100 new: off / stacked          0.999    0.999    2/3    0.978 (1)   0.043  0.930  1.057  reduct 1.019[9] softma 0.999[9] tpu.ws 0.978
+k100 new: on / stacked           0.955    0.955    3/3    0.945 (1)   0.034  0.910  1.004  reduct 0.943[9] softma 0.979[9] tpu.ws 0.945
+k100 new: on / off               0.964    0.964    3/3    0.956 (2)   0.043  0.895  1.041  reduct 0.946 softma 0.980[9] tpu.ws 0.966
+k100 all: off / stacked          0.960    0.977    7/10    0.948 (8)   0.016  0.922  0.975  attent 0.953 bwave 1.004 conv 0.816 eltwis 1.018 reduct 1.019[9] robot 0.951 softma 0.999[9] spmv 0.969 tpu 0.913 tpu.ws 0.978
+k100 all: on / stacked           0.944    0.960    8/10    0.931 (7)   0.021  0.901  0.972  attent 0.965 bwave 1.001 conv 0.813 eltwis 1.006[9] reduct 0.943[9] robot 0.947 softma 0.979[9] spmv 0.942 tpu 0.918 tpu.ws 0.945
+k100 all: on / off               0.985    0.984    8/10    0.986 (8)   0.016  0.956  1.012  attent 1.013 bwave 0.997 conv 0.997 eltwis 0.984[9] reduct 0.946 robot 0.996 softma 0.980[9] spmv 0.972 tpu 1.006 tpu.ws 0.966
+                              new designs, off runs that failed: softmax s2
+                              new designs, stack runs that failed: reduction_layer s6
+                              new designs, on runs that failed: softmax s2
+k162pin new: off / stacked       1.011    1.011    1/3    1.015 (2)   0.033  0.949  1.056  reduct 1.003[9] softma 1.030 tpu.ws 1.000
+k162pin new: on / stacked        0.991    0.991    2/3    0.991 (3)   0.029  0.928  1.022  reduct 0.977 softma 1.019 tpu.ws 0.978
+k162pin new: on / off            0.982    0.982    3/3    0.983 (2)   0.034  0.911  1.023  reduct 0.978[9] softma 0.989 tpu.ws 0.978
+k162pin all: off / stacked       0.982    0.997    6/10    0.980 (9)   0.017  0.956  1.005  attent 0.982 bwave 1.049 conv 0.858 eltwis 1.048 reduct 1.003[9] robot 0.985 softma 1.030 spmv 0.970 tpu 0.912 tpu.ws 1.000
+k162pin all: on / stacked        0.966    0.982    5/10    0.978 (8)   0.019  0.936  0.997  attent 1.017 bwave 1.015 conv 0.834[9] eltwis 1.029 reduct 0.977 robot 1.010[9] softma 1.019 spmv 0.942 tpu 0.860 tpu.ws 0.978
+k162pin all: on / off            0.984    0.985    8/10    0.981 (7)   0.014  0.967  1.010  attent 1.035 bwave 0.968 conv 0.977[9] eltwis 0.982 reduct 0.978[9] robot 1.020[9] softma 0.989 spmv 0.971 tpu 0.943 tpu.ws 0.978
+                              new designs, off runs that failed: reduction_layer s7
+
+With --fill (stacked reduction_layer s6 at k = 1.0 routed rerun at 200 iterations, and the 7
+designs' failed runs as in A), only these rows change:
+k100 new: off / stacked          0.994    0.994    2/3    0.991 (2)   0.040  0.930  1.057  reduct 1.004 softma 0.999[9] tpu.ws 0.978
+k100 new: on / stacked           0.958    0.958    3/3    0.947 (2)   0.034  0.910  1.004  reduct 0.949 softma 0.979[9] tpu.ws 0.945
+k100 all: off / stacked          0.958    0.976    7/10    0.954 (9)   0.016  0.922  0.975  attent 0.953 bwave 1.004 conv 0.816 eltwis 1.018 reduct 1.004 robot 0.951 softma 0.999[9] spmv 0.969 tpu 0.913 tpu.ws 0.978
+k100 all: on / stacked           0.945    0.961    8/10    0.941 (9)   0.021  0.901  0.972  attent 0.965 bwave 1.001 conv 0.813 eltwis 1.002 reduct 0.949 robot 0.947 softma 0.979[9] spmv 0.942 tpu 0.918 tpu.ws 0.945
+k100 all: on / off               0.986    0.984    8/10    0.986 (9)   0.016  0.956  1.012  attent 1.013 bwave 0.997 conv 0.997 eltwis 0.985 reduct 0.946 robot 0.996 softma 0.980[9] spmv 0.972 tpu 1.006 tpu.ws 0.966
+k162pin all: on / stacked        0.965    0.980    6/10    0.965 (10)   0.020  0.929  0.997  attent 1.017 bwave 1.015 conv 0.842 eltwis 1.029 reduct 0.977 robot 0.995 softma 1.019 spmv 0.942 tpu 0.860 tpu.ws 0.978
+k162pin all: on / off            0.983    0.984    8/10    0.984 (9)   0.015  0.965  1.010  attent 1.035 bwave 0.968 conv 0.981 eltwis 0.982 reduct 0.978[9] robot 1.011 softma 0.989 spmv 0.971 tpu 0.943 tpu.ws 0.978
+
+Reading (C)
+- Weak spots first. At the harshest corner (1.62x + pins) the pass does not help the new designs
+  with ideal clocks: on / off 1.003 (reduction_layer 1.037 on 9 seeds, softmax 0.985,
+  tpu_like.small.ws 0.989), and split with the pass is 1.003 of stacked, 1/3 designs faster. Routed
+  it helps less than on the 7: on / off 0.982 (the 7: 0.985), split over stacked 1.011 -> 0.991, 2/3
+  faster. On the 7 the same corner gives on / off 0.970 ideal. The pass's own measure still drops
+  (weighted crossing cost after / before 0.617-0.645, as 0.504-0.691 on the 7), so the model it
+  optimises does not predict the CPD of reduction_layer here.
+- The new designs are a weaker case for the split even without the pass: pass-off over stacked
+  0.987 ideal / 0.999 routed at k = 1.0 (the 7: 0.936 / 0.944) and 0.998 / 1.011 at 1.62x + pins
+  (the 7: 0.982 / 0.970). Adding them moves the all-design headline toward stacked: 0.951 / 0.960
+  at k = 1.0 with all 10 designs, against 0.936 / 0.944 with the 7. On this evidence the 7 were a
+  favourable sample for the split, and the headline should be quoted with that.
+- With the pass, all 10 designs: k = 1.0 0.951 -> 0.936 ideal (10/10 faster), 0.960 -> 0.944 routed
+  (8/10); 1.62x + pins 0.987 -> 0.967 ideal (7/10), 0.982 -> 0.966 routed (5/10; 6/10 with
+  --fill). Without conv_layer at 1.62x + pins: 1.000 -> 0.982 and 0.997 -> 0.982.
+- At k = 1.0 the pass does help the new designs: on / off 0.976 ideal / 0.964 routed, 3/3 faster
+  both ways, and split over stacked 0.987 -> 0.963 ideal, 0.999 -> 0.955 routed.
+- tpu_like.small.ws behaves like a design of its own, not a copy of tpu_like.small.os (pass-off over
+  stacked 0.980 against 0.920 ideal at k = 1.0), but it is not independent evidence the way
+  reduction_layer and softmax are. For tpu_like.small.ws the pass trades crossings inside CLBs for
+  crossings between them (packer-critical in-CLB crossings 52 -> 87, between CLBs 171 -> 94).
+
+== D. Hardware check: the rewritten packing through OpenFPGA and simulation (hwcheck/run_hwcheck.sh;
+logs hwcheck/*.txt; ff_test/run_ff_test.py, TECHNICAL_MAP 2.3)
+The existing flip-flop test, on the sweeps' split CLB: 20 FLEs, one crossbar per layer reading only
+that layer's input pins, input pins on their own layer's tracks (--fles 20 --local --own-layer). The
+test design is make_ff_design.py --count 20: 18 flip-flops in a chain (each reads its neighbour and
+itself) plus 2 combinational LUTs, 38 atoms in one CLB. Flow: VPR packs and writes its criticalities;
+layer_pass.py rewrites the .net (as compare_2d_3d.py --layer-pass); OpenFPGA's VPR places and routes
+that .net; OpenFPGA writes the fabric Verilog and the bitstream; split_clb_layers.py splits the CLB
+into its two layer modules; Icarus runs the configured fabric against the design's own reference
+Verilog, 1,000 random cycles per case, then 5,000. Each case holds one crossing at 0 (a "cut").
+With own-layer pins the IO pads reach both layers' tracks (the default test keeps them on layer 1,
+which would leave layer-0 pins unreachable).
+
+  case        what changes                                    result
+  pass        the pass as the sweeps run it                   0 mismatches (1,000 and 5,000 cycles)
+  control     layer_pass.py --control                         0 mismatches (1,000 and 5,000 cycles)
+  nopass      no pass (same fabric and design)                0 mismatches (1,000 and 5,000 cycles)
+  fault_net   rewritten .net: fle[10].out -> fle[0].out on    refused when OpenFPGA's VPR reads the
+              one FLE input (layer 1's crossbar)              .net (read_netlist.cpp assertion
+                                                              pb_route->atom_net_id == pin_net)
+  fault_lut   LUT d0 (an FLE the pass moved) with one truth-  26 mismatches in 1,000 cycles, 167 in
+              table row dropped, in the implemented netlist   5,000
+              only, not in the reference
+  default10_regression  the original 10-LUT test, none of     PASS (0 mismatches)
+              the new options
+
+- The pass moved FLEs across layers in this design (its own log): one swap, the FLE holding d0/q0
+  from fle[19] (layer 1) to fle[9] (layer 0) and the one holding d14/q14 the other way; its weighted
+  crossing cost 10.0 -> 7.5. The packing OpenFPGA placed, routed and built the bitstream from
+  (passed.net.post_routing) is the rewritten one, checked atom by atom. The control rewrite puts 31
+  of the 38 atoms in a different FLE slot (none on another layer), so it exercises the renumbering
+  of every crossbar token, not just one swap.
+- The cuts show the check can fail and that the crossings carry what the design needs: in pass,
+  clk (4810 mismatches) and reset (19) must fail and do; set (unused) gives 0; all 20 FLE-output
+  crossings give mismatches when held at 0, including the outputs of both moved FLEs (F9, F19).
+  control and nopass give the same picture (clk 4853 and 4923, reset 19 and 19, 20 of 20).
+
+Reading (D)
+- What it does not cover, first: one small design (20 LUTs, one CLB) on the 6x6 test fabric
+  (vtr_3d_clb_arch.xml with the sweeps' CLB, but not the Koios fabric's hard blocks, wire spans or
+  delays); the Koios designs are far too big for this whole-fabric RTL simulation. The pass moved
+  one pair of FLEs here (the packer rates no connection of this design 0.9 critical or more), and
+  no CLB with a route-through FLE (which the pass leaves as packed) occurs. It is a functional
+  check only: it shows the rewritten packing is built and computes the right function on both
+  layers, not that VPR's delays or the CPD gains are right.
+- What it covers: a rewritten .net goes through OpenFPGA unchanged, and the split two-layer CLB
+  configured from it computes the reference function, with moved FLEs on their new layer and their
+  outputs crossing to FLEs that need them.
+- Two kinds of rewrite bug are covered by the negative controls. A misrouted token (an FLE reading
+  the wrong net) is refused by VPR's own netlist reader before any bitstream exists, so in a sweep
+  it would stop that run (as the route-through bug did while the pass was written), not shift a
+  result. A wrong function in a moved FLE is caught by the simulation.
+
+
+== E. All 10 designs at every setting (run_newdesigns_e.sh; check: newdesigns/e_check.txt; CSVs:
+newdesigns/; table: tendesigns_table.py; pass stats: newdesigns/layer_pass_stats_e.tsv; lstm and
+dla_like.small trial: run_bigtrial.sh, newdesigns/bigtrial.txt and bigtrial_mem.tsv)
+C ran its 3 designs (reduction_layer, softmax, tpu_like.small.ws) only at k = 1.0 and 1.62 + pins.
+E runs them at every other setting the 7 have, so each table below has all 10 designs: split
+pass-off, stacked and split pass-on at 1.62x, 2.24x, 2.72x and 3.0x (crossings/run_crossings.sh's
+sets; at 1.62x stacked is C's, the same delay set 3d10stack_w100_k162); the 10-LUT 2D fabric at
+k = 1.0 (as run_hb10.sh); the ablation, the split CLB on stacked's exact routing
+(ablation/run_ablation.sh); and equal tracks, stacked at the split's track count
+(equal_tracks/run_equal_tracks.sh, the split's widths from C's k = 1.0 runs:
+newdesigns/split_widths.tsv).
+Flow as C (10 seeds, routed and ideal clocks, each fabric at 1.3x its own minimum, ideal clocks at
+the routed widths, pass-on at its pass-off twin's track count). The 2D step reuses C's 60 k = 1.0
+split runs: its 3D rows equal C's committed rows in every column (0 differences in 60 rows).
+Check first (e_check.txt): one design and seed of the 7 per kind of run (eltwise_layer s1 for the
+crossing points, pass-on, ablation and equal tracks; spmv s1 for 2D), through this script, gives
+exactly its committed row, 18 of 18 (width, CPD, wirelength, every column).
+Run: 2026-11-17 19:54-22:14 on the Mac, 12 VPR runs at a time, 840 new runs. 3 did not route within
+50 router iterations, all ablation softmax at width 60 (2-3 overused nodes): s10 routed (its ideal
+twin routes), s3 and s5 ideal (their routed twins route). Rerun with 200 router iterations
+(run_failed.sh ABL=DIR), all 3 still end with 2-3 overused nodes, so they are unroutable at that
+width, not short of iterations (as C's 6); their seeds drop out of the pairs that need them (the [n]
+marks).
+The pass, its exponent and its settings are unchanged. For the new 3 it does not make exactly the
+same choice at every k, unlike the 7 (B): the weighted crossing cost after / before is the same at
+every k (0.617-0.645), but the FLE moves differ by up to 14 of 1589-5787 per run (reduction_layer
+1603 at 1.62x-2.72x, 1589 at 1.0x and 3.0x; tpu_like.small.ws 5773-5787), and softmax's critical
+crossings at 3.0x are 993 / 1410 against 995 / 1407. Why was not checked (the runs keep no
+criticality file).
+"the 7" = the committed rows (as in A-C), "new 3" = C's and E's rows, "all 10" = both.
+== ideal clocks
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+-- k = 1.00 (SPICE)
+the 7: off / stacked             0.936    0.953    7/7    0.936 (7)   0.017  0.908  0.962  attent 0.969 bwave 0.988 conv 0.838 eltwis 0.975 robot 0.943 spmv 0.926 tpu 0.920
+the 7: on / stacked              0.924    0.940    7/7    0.924 (7)   0.012  0.904  0.942  attent 0.983 bwave 0.982 conv 0.833 eltwis 0.953 robot 0.940 spmv 0.892 tpu 0.895
+the 7: on / off                  0.988    0.986    6/7    0.988 (7)   0.017  0.966  1.016  attent 1.015 bwave 0.994 conv 0.995 eltwis 0.977 robot 0.997 spmv 0.964 tpu 0.972
+new 3: off / stacked             0.987    0.987    2/3    0.970 (2)   0.031  0.957  1.044  reduct 0.961 softma 1.022[9] tpu.ws 0.980
+new 3: on / stacked              0.963    0.963    3/3    0.949 (2)   0.030  0.923  1.008  reduct 0.952 softma 0.992[9] tpu.ws 0.946
+new 3: on / off                  0.976    0.976    3/3    0.978 (2)   0.027  0.939  1.028  reduct 0.991 softma 0.971[9] tpu.ws 0.965
+all 10: off / stacked            0.951    0.964    9/10    0.943 (9)   0.016  0.920  0.972  attent 0.969 bwave 0.988 conv 0.838 eltwis 0.975 reduct 0.961 robot 0.943 softma 1.022[9] spmv 0.926 tpu 0.920 tpu.ws 0.980
+all 10: on / stacked             0.936    0.948   10/10    0.930 (9)   0.010  0.920  0.952  attent 0.983 bwave 0.982 conv 0.833 eltwis 0.953 reduct 0.952 robot 0.940 softma 0.992[9] spmv 0.892 tpu 0.895 tpu.ws 0.946
+all 10: on / off                 0.984    0.983    9/10    0.986 (9)   0.014  0.962  1.005  attent 1.015 bwave 0.994 conv 0.995 eltwis 0.977 reduct 0.991 robot 0.997 softma 0.971[9] spmv 0.964 tpu 0.972 tpu.ws 0.965
+                              new designs, off runs that failed: softmax s2
+                              new designs, on runs that failed: softmax s2
+-- k = 1.62
+the 7: off / stacked             0.964    0.978    5/7    0.955 (6)   0.022  0.921  0.994  attent 0.980 bwave 1.001 conv 0.880 eltwis 1.019[9] robot 0.964 spmv 0.947 tpu 0.962
+the 7: on / stacked              0.938    0.956    6/7    0.938 (7)   0.014  0.915  0.960  attent 0.989 bwave 1.001 conv 0.838 eltwis 0.979 robot 0.958 spmv 0.925 tpu 0.891
+the 7: on / off                  0.974    0.978    6/7    0.976 (6)   0.017  0.949  1.002  attent 1.010 bwave 1.000 conv 0.952 eltwis 0.965[9] robot 0.993 spmv 0.977 tpu 0.926
+new 3: off / stacked             0.990    0.990    2/3    0.990 (3)   0.020  0.961  1.023  reduct 0.983 softma 1.023 tpu.ws 0.966
+new 3: on / stacked              0.991    0.991    1/3    0.991 (3)   0.036  0.933  1.038  reduct 1.014 softma 1.006 tpu.ws 0.954
+new 3: on / off                  1.001    1.001    2/3    1.001 (3)   0.045  0.929  1.064  reduct 1.032 softma 0.983 tpu.ws 0.987
+all 10: off / stacked            0.972    0.982    7/10    0.967 (9)   0.018  0.934  0.990  attent 0.980 bwave 1.001 conv 0.880 eltwis 1.019[9] reduct 0.983 robot 0.964 softma 1.023 spmv 0.947 tpu 0.962 tpu.ws 0.966
+all 10: on / stacked             0.954    0.968    7/10    0.954 (10)   0.019  0.920  0.981  attent 0.989 bwave 1.001 conv 0.838 eltwis 0.979 reduct 1.014 robot 0.958 softma 1.006 spmv 0.925 tpu 0.891 tpu.ws 0.954
+all 10: on / off                 0.982    0.986    8/10    0.984 (9)   0.018  0.955  1.010  attent 1.010 bwave 1.000 conv 0.952 eltwis 0.965[9] reduct 1.032 robot 0.993 softma 0.983 spmv 0.977 tpu 0.926 tpu.ws 0.987
+-- k = 1.62 + pins
+the 7: off / stacked             0.982    1.002    5/7    0.982 (7)   0.020  0.950  1.023  attent 0.999 bwave 1.026 conv 0.874 eltwis 1.053 robot 0.972 spmv 0.987 tpu 0.976
+the 7: on / stacked              0.952    0.972    6/7    0.952 (7)   0.013  0.923  0.966  attent 0.997 bwave 1.001 conv 0.843 eltwis 0.991 robot 0.964 spmv 0.942 tpu 0.937
+the 7: on / off                  0.970    0.970    7/7    0.970 (7)   0.013  0.940  0.982  attent 0.998 bwave 0.976 conv 0.965 eltwis 0.941 robot 0.992 spmv 0.955 tpu 0.961
+new 3: off / stacked             0.998    0.998    2/3    1.009 (2)   0.023  0.977  1.035  reduct 0.977[9] softma 1.054 tpu.ws 0.966
+new 3: on / stacked              1.003    1.003    1/3    1.003 (3)   0.044  0.954  1.073  reduct 1.019 softma 1.038 tpu.ws 0.955
+new 3: on / off                  1.003    1.003    2/3    0.987 (2)   0.039  0.934  1.062  reduct 1.037[9] softma 0.985 tpu.ws 0.989
+all 10: off / stacked            0.987    1.000    7/10    0.988 (9)   0.016  0.968  1.021  attent 0.999 bwave 1.026 conv 0.874 eltwis 1.053 reduct 0.977[9] robot 0.972 softma 1.054 spmv 0.987 tpu 0.976 tpu.ws 0.966
+all 10: on / stacked             0.967    0.982    7/10    0.967 (10)   0.019  0.936  0.993  attent 0.997 bwave 1.001 conv 0.843 eltwis 0.991 reduct 1.019 robot 0.964 softma 1.038 spmv 0.942 tpu 0.937 tpu.ws 0.955
+all 10: on / off                 0.980    0.981    9/10    0.973 (9)   0.014  0.960  1.003  attent 0.998 bwave 0.976 conv 0.965 eltwis 0.941 reduct 1.037[9] robot 0.992 softma 0.985 spmv 0.955 tpu 0.961 tpu.ws 0.989
+                              new designs, off runs that failed: reduction_layer s7
+-- k = 2.24
+the 7: off / stacked             0.985    0.998    4/7    0.985 (7)   0.026  0.945  1.018  attent 0.994 bwave 1.004 conv 0.911 eltwis 1.056 robot 1.001 spmv 0.945 tpu 0.989
+the 7: on / stacked              0.949    0.965    6/7    0.949 (7)   0.024  0.914  0.986  attent 0.999 bwave 1.017 conv 0.860 eltwis 1.000 robot 0.950 spmv 0.912 tpu 0.918
+the 7: on / off                  0.964    0.967    5/7    0.964 (7)   0.007  0.953  0.975  attent 1.005 bwave 1.014 conv 0.944 eltwis 0.946 robot 0.949 spmv 0.965 tpu 0.928
+new 3: off / stacked             1.007    1.007    1/3    1.007 (3)   0.019  0.968  1.032  reduct 1.008 softma 1.032 tpu.ws 0.981
+new 3: on / stacked              0.997    0.997    1/3    0.997 (3)   0.025  0.967  1.043  reduct 1.005 softma 1.026 tpu.ws 0.961
+new 3: on / off                  0.990    0.990    3/3    0.990 (3)   0.026  0.958  1.020  reduct 0.997 softma 0.994 tpu.ws 0.980
+all 10: off / stacked            0.991    1.001    5/10    0.991 (10)   0.021  0.952  1.020  attent 0.994 bwave 1.004 conv 0.911 eltwis 1.056 reduct 1.008 robot 1.001 softma 1.032 spmv 0.945 tpu 0.989 tpu.ws 0.981
+all 10: on / stacked             0.963    0.976    7/10    0.963 (10)   0.020  0.933  0.999  attent 0.999 bwave 1.017 conv 0.860 eltwis 1.000 reduct 1.005 robot 0.950 softma 1.026 spmv 0.912 tpu 0.918 tpu.ws 0.961
+all 10: on / off                 0.972    0.975    8/10    0.972 (10)   0.009  0.957  0.985  attent 1.005 bwave 1.014 conv 0.944 eltwis 0.946 reduct 0.997 robot 0.949 softma 0.994 spmv 0.965 tpu 0.928 tpu.ws 0.980
+-- k = 2.72
+the 7: off / stacked             1.008    1.019    2/7    1.008 (7)   0.013  0.989  1.029  attent 1.009 bwave 1.016 conv 0.946 eltwis 1.094 robot 1.007 spmv 0.972 tpu 1.020
+the 7: on / stacked              0.953    0.968    5/7    0.953 (7)   0.018  0.921  0.976  attent 1.001 bwave 0.995 conv 0.866 eltwis 1.017 robot 0.954 spmv 0.925 tpu 0.923
+the 7: on / off                  0.945    0.950    7/7    0.945 (7)   0.010  0.931  0.958  attent 0.993 bwave 0.979 conv 0.915 eltwis 0.929 robot 0.947 spmv 0.952 tpu 0.905
+new 3: off / stacked             1.035    1.035    1/3    1.035 (3)   0.022  0.998  1.066  reduct 1.031 softma 1.075 tpu.ws 0.999
+new 3: on / stacked              0.996    0.996    2/3    0.996 (3)   0.024  0.974  1.053  reduct 0.970 softma 1.037 tpu.ws 0.983
+new 3: on / off                  0.963    0.963    3/3    0.963 (3)   0.027  0.931  1.019  reduct 0.941 softma 0.964 tpu.ws 0.984
+all 10: off / stacked            1.016    1.024    3/10    1.016 (10)   0.012  1.005  1.040  attent 1.009 bwave 1.016 conv 0.946 eltwis 1.094 reduct 1.031 robot 1.007 softma 1.075 spmv 0.972 tpu 1.020 tpu.ws 0.999
+all 10: on / stacked             0.966    0.978    7/10    0.966 (10)   0.012  0.947  0.983  attent 1.001 bwave 0.995 conv 0.866 eltwis 1.017 reduct 0.970 robot 0.954 softma 1.037 spmv 0.925 tpu 0.923 tpu.ws 0.983
+all 10: on / off                 0.950    0.954   10/10    0.950 (10)   0.012  0.935  0.972  attent 0.993 bwave 0.979 conv 0.915 eltwis 0.929 reduct 0.941 robot 0.947 softma 0.964 spmv 0.952 tpu 0.905 tpu.ws 0.984
+-- k = 3.00
+the 7: off / stacked             1.018    1.035    2/7    1.018 (7)   0.016  0.998  1.046  attent 1.015 bwave 1.046 conv 0.925 eltwis 1.098 robot 1.017 spmv 0.981 tpu 1.056
+the 7: on / stacked              0.980    1.000    4/7    0.980 (7)   0.017  0.952  1.006  attent 1.017 bwave 1.058 conv 0.869 eltwis 1.027 robot 0.981 spmv 0.960 tpu 0.962
+the 7: on / off                  0.963    0.967    5/7    0.963 (7)   0.015  0.950  0.988  attent 1.002 bwave 1.012 conv 0.939 eltwis 0.935 robot 0.965 spmv 0.979 tpu 0.911
+new 3: off / stacked             1.017    1.017    1/3    1.017 (3)   0.024  0.977  1.061  reduct 1.005 softma 1.063 tpu.ws 0.983
+new 3: on / stacked              0.999    0.999    2/3    0.999 (3)   0.031  0.956  1.044  reduct 0.990 softma 1.037 tpu.ws 0.971
+new 3: on / off                  0.983    0.983    3/3    0.983 (3)   0.032  0.927  1.024  reduct 0.985 softma 0.976 tpu.ws 0.987
+all 10: off / stacked            1.018    1.029    3/10    1.018 (10)   0.015  1.005  1.050  attent 1.015 bwave 1.046 conv 0.925 eltwis 1.098 reduct 1.005 robot 1.017 softma 1.063 spmv 0.981 tpu 1.056 tpu.ws 0.983
+all 10: on / stacked             0.986    1.000    6/10    0.986 (10)   0.016  0.960  1.010  attent 1.017 bwave 1.058 conv 0.869 eltwis 1.027 reduct 0.990 robot 0.981 softma 1.037 spmv 0.960 tpu 0.962 tpu.ws 0.971
+all 10: on / off                 0.969    0.972    8/10    0.969 (10)   0.015  0.947  0.996  attent 1.002 bwave 1.012 conv 0.939 eltwis 0.935 reduct 0.985 robot 0.965 softma 0.976 spmv 0.979 tpu 0.911 tpu.ws 0.987
+-- k = 1.00 against the 2D fabric (10-LUT CLBs)
+the 7: off / 2D                  0.929    0.948    6/7    0.929 (7)   0.023  0.900  0.965  attent 1.028 bwave 0.976 conv 0.825 eltwis 0.988 robot 0.923 spmv 0.921 tpu 0.859
+the 7: stacked / 2D              0.993    0.994    5/7    0.993 (7)   0.033  0.952  1.058  attent 1.062 bwave 0.988 conv 0.985 eltwis 1.013 robot 0.979 spmv 0.995 tpu 0.933
+the 7: on / 2D                   0.918    0.935    6/7    0.918 (7)   0.022  0.886  0.957  attent 1.044 bwave 0.971 conv 0.821 eltwis 0.966 robot 0.921 spmv 0.888 tpu 0.835
+new 3: off / 2D                  0.989    0.989    2/3    0.967 (2)   0.037  0.945  1.060  reduct 0.968 softma 1.037[9] tpu.ws 0.965
+new 3: stacked / 2D              1.002    1.002    1/3    1.002 (3)   0.020  0.973  1.043  reduct 1.007 softma 1.014 tpu.ws 0.985
+new 3: on / 2D                   0.965    0.965    2/3    0.945 (2)   0.038  0.913  1.011  reduct 0.959 softma 1.006[9] tpu.ws 0.932
+all 10: off / 2D                 0.947    0.961    8/10    0.937 (9)   0.015  0.915  0.967  attent 1.028 bwave 0.976 conv 0.825 eltwis 0.988 reduct 0.968 robot 0.923 softma 1.037[9] spmv 0.921 tpu 0.859 tpu.ws 0.965
+all 10: stacked / 2D             0.996    0.997    6/10    0.996 (10)   0.021  0.964  1.032  attent 1.062 bwave 0.988 conv 0.985 eltwis 1.013 reduct 1.007 robot 0.979 softma 1.014 spmv 0.995 tpu 0.933 tpu.ws 0.985
+all 10: on / 2D                  0.932    0.945    8/10    0.924 (9)   0.015  0.903  0.950  attent 1.044 bwave 0.971 conv 0.821 eltwis 0.966 reduct 0.959 robot 0.921 softma 1.006[9] spmv 0.888 tpu 0.835 tpu.ws 0.932
+                              new designs, off runs that failed: softmax s2
+                              new designs, on runs that failed: softmax s2
+-- k = 1.00 ablation: split CLB on stacked's exact routing (strict)
+the 7: strict / stacked          0.950    0.970    6/7    0.950 (7)   0.021  0.909  0.979  attent 0.989 bwave 0.994 conv 0.839 eltwis 1.006 robot 0.969 spmv 0.924 tpu 0.941
+the 7: off / strict              0.985    0.982    6/7    0.985 (7)   0.013  0.967  1.002  attent 0.979 bwave 0.993 conv 0.999 eltwis 0.969 robot 0.973 spmv 1.002 tpu 0.978
+the 7: strict / 2D               0.944    0.965    5/7    0.944 (7)   0.020  0.902  0.968  attent 1.050 bwave 0.983 conv 0.826 eltwis 1.019 robot 0.949 spmv 0.919 tpu 0.878
+new 3: strict / stacked          1.004    1.004    2/3    0.989 (2)   0.048  0.940  1.072  reduct 1.000 softma 1.034[8] tpu.ws 0.978
+new 3: off / strict              0.983    0.983    2/3    0.981 (2)   0.061  0.896  1.113  reduct 0.961 softma 0.987[7] tpu.ws 1.002
+new 3: strict / 2D               1.007    1.007    1/3    0.985 (2)   0.042  0.942  1.062  reduct 1.006 softma 1.052[8] tpu.ws 0.964
+all 10: strict / stacked         0.966    0.981    8/10    0.959 (9)   0.015  0.948  0.999  attent 0.989 bwave 0.994 conv 0.839 eltwis 1.006 reduct 1.000 robot 0.969 softma 1.034[8] spmv 0.924 tpu 0.941 tpu.ws 0.978
+all 10: off / strict             0.984    0.983    8/10    0.984 (9)   0.016  0.958  1.003  attent 0.979 bwave 0.993 conv 0.999 eltwis 0.969 reduct 0.961 robot 0.973 softma 0.987[7] spmv 1.002 tpu 0.978 tpu.ws 1.002
+all 10: strict / 2D              0.962    0.979    6/10    0.953 (9)   0.021  0.923  0.992  attent 1.050 bwave 0.983 conv 0.826 eltwis 1.019 reduct 1.006 robot 0.949 softma 1.052[8] spmv 0.919 tpu 0.878 tpu.ws 0.964
+                              new designs, off runs that failed: softmax s2
+                              new designs, abl runs that failed: softmax s3, softmax s5
+-- k = 1.00 equal tracks: stacked at the split's track count (stacked eq)
+the 7: stacked eq / stacked      0.994    0.993    6/7    0.994 (7)   0.020  0.957  1.019  attent 0.996 bwave 0.995 conv 1.003 eltwis 0.989 robot 0.995 spmv 0.987 tpu 0.996
+the 7: off / stacked eq          0.941    0.960    7/7    0.941 (7)   0.019  0.910  0.976  attent 0.972 bwave 0.992 conv 0.835 eltwis 0.986 robot 0.948 spmv 0.938 tpu 0.924
+the 7: on / stacked eq           0.929    0.947    7/7    0.929 (7)   0.017  0.905  0.964  attent 0.987 bwave 0.987 conv 0.831 eltwis 0.963 robot 0.945 spmv 0.904 tpu 0.899
+new 3: stacked eq / stacked      0.999    0.999    2/3    0.999 (3)   0.030  0.932  1.030  reduct 0.991 softma 1.013 tpu.ws 0.993
+new 3: off / stacked eq          0.988    0.988    2/3    0.978 (2)   0.042  0.933  1.045  reduct 0.970 softma 1.008[9] tpu.ws 0.987
+new 3: on / stacked eq           0.964    0.964    3/3    0.957 (2)   0.029  0.901  0.999  reduct 0.961 softma 0.978[9] tpu.ws 0.953
+all 10: stacked eq / stacked     0.996    0.995    8/10    0.996 (10)   0.019  0.963  1.014  attent 0.996 bwave 0.995 conv 1.003 eltwis 0.989 reduct 0.991 robot 0.995 softma 1.013 spmv 0.987 tpu 0.996 tpu.ws 0.993
+all 10: off / stacked eq         0.955    0.969    9/10    0.949 (9)   0.020  0.928  0.993  attent 0.972 bwave 0.992 conv 0.835 eltwis 0.986 reduct 0.970 robot 0.948 softma 1.008[9] spmv 0.938 tpu 0.924 tpu.ws 0.987
+all 10: on / stacked eq          0.940    0.952   10/10    0.935 (9)   0.016  0.923  0.964  attent 0.987 bwave 0.987 conv 0.831 eltwis 0.963 reduct 0.961 robot 0.945 softma 0.978[9] spmv 0.904 tpu 0.899 tpu.ws 0.953
+                              new designs, off runs that failed: softmax s2
+                              new designs, on runs that failed: softmax s2
+
+== routed clocks
+                               geomean  no conv  faster  drop design seed sd    min    max  per design (seeds used, if fewer than 10)
+-- k = 1.00 (SPICE)
+the 7: off / stacked             0.944    0.967    5/7    0.944 (7)   0.015  0.913  0.963  attent 0.953 bwave 1.004 conv 0.816 eltwis 1.018 robot 0.951 spmv 0.969 tpu 0.913
+the 7: on / stacked              0.940    0.963    5/7    0.929 (6)   0.026  0.890  0.985  attent 0.965 bwave 1.001 conv 0.813 eltwis 1.006[9] robot 0.947 spmv 0.942 tpu 0.918
+the 7: on / off                  0.995    0.995    5/7    0.997 (6)   0.020  0.971  1.031  attent 1.013 bwave 0.997 conv 0.997 eltwis 0.984[9] robot 0.996 spmv 0.972 tpu 1.006
+new 3: off / stacked             0.999    0.999    2/3    0.978 (1)   0.043  0.930  1.057  reduct 1.019[9] softma 0.999[9] tpu.ws 0.978
+new 3: on / stacked              0.955    0.955    3/3    0.945 (1)   0.034  0.910  1.004  reduct 0.943[9] softma 0.979[9] tpu.ws 0.945
+new 3: on / off                  0.964    0.964    3/3    0.956 (2)   0.043  0.895  1.041  reduct 0.946 softma 0.980[9] tpu.ws 0.966
+all 10: off / stacked            0.960    0.977    7/10    0.948 (8)   0.016  0.922  0.975  attent 0.953 bwave 1.004 conv 0.816 eltwis 1.018 reduct 1.019[9] robot 0.951 softma 0.999[9] spmv 0.969 tpu 0.913 tpu.ws 0.978
+all 10: on / stacked             0.944    0.960    8/10    0.931 (7)   0.021  0.901  0.972  attent 0.965 bwave 1.001 conv 0.813 eltwis 1.006[9] reduct 0.943[9] robot 0.947 softma 0.979[9] spmv 0.942 tpu 0.918 tpu.ws 0.945
+all 10: on / off                 0.985    0.984    8/10    0.986 (8)   0.016  0.956  1.012  attent 1.013 bwave 0.997 conv 0.997 eltwis 0.984[9] reduct 0.946 robot 0.996 softma 0.980[9] spmv 0.972 tpu 1.006 tpu.ws 0.966
+                              new designs, off runs that failed: softmax s2
+                              new designs, stack runs that failed: reduction_layer s6
+                              new designs, on runs that failed: softmax s2
+-- k = 1.62
+the 7: off / stacked             0.957    0.977    5/7    0.957 (7)   0.032  0.913  1.001  attent 0.978 bwave 1.017 conv 0.845 eltwis 1.042 robot 0.974 spmv 0.966 tpu 0.892
+the 7: on / stacked              0.933    0.957    5/7    0.930 (6)   0.027  0.895  0.979  attent 0.993 bwave 1.034 conv 0.799 eltwis 1.015 robot 0.950[9] spmv 0.932 tpu 0.835
+the 7: on / off                  0.974    0.978    5/7    0.975 (6)   0.028  0.923  1.020  attent 1.015 bwave 1.016 conv 0.946 eltwis 0.974 robot 0.966[9] spmv 0.965 tpu 0.937
+new 3: off / stacked             0.983    0.983    3/3    0.983 (3)   0.025  0.933  1.017  reduct 0.982 softma 0.986 tpu.ws 0.982
+new 3: on / stacked              0.977    0.977    3/3    0.977 (3)   0.026  0.938  1.006  reduct 0.978 softma 0.984 tpu.ws 0.970
+new 3: on / off                  0.994    0.994    3/3    0.994 (3)   0.028  0.946  1.037  reduct 0.995 softma 0.998 tpu.ws 0.987
+all 10: off / stacked            0.965    0.979    8/10    0.965 (10)   0.019  0.932  0.987  attent 0.978 bwave 1.017 conv 0.845 eltwis 1.042 reduct 0.982 robot 0.974 softma 0.986 spmv 0.966 tpu 0.892 tpu.ws 0.982
+all 10: on / stacked             0.946    0.964    8/10    0.946 (9)   0.018  0.927  0.982  attent 0.993 bwave 1.034 conv 0.799 eltwis 1.015 reduct 0.978 robot 0.950[9] softma 0.984 spmv 0.932 tpu 0.835 tpu.ws 0.970
+all 10: on / off                 0.980    0.983    8/10    0.981 (9)   0.023  0.948  1.014  attent 1.015 bwave 1.016 conv 0.946 eltwis 0.974 reduct 0.995 robot 0.966[9] softma 0.998 spmv 0.965 tpu 0.937 tpu.ws 0.987
+-- k = 1.62 + pins
+the 7: off / stacked             0.970    0.990    5/7    0.970 (7)   0.023  0.942  1.004  attent 0.982 bwave 1.049 conv 0.858 eltwis 1.048 robot 0.985 spmv 0.970 tpu 0.912
+the 7: on / stacked              0.955    0.977    3/7    0.970 (5)   0.029  0.898  0.996  attent 1.017 bwave 1.015 conv 0.834[9] eltwis 1.029 robot 1.010[9] spmv 0.942 tpu 0.860
+the 7: on / off                  0.985    0.986    5/7    0.979 (5)   0.024  0.952  1.024  attent 1.035 bwave 0.968 conv 0.977[9] eltwis 0.982 robot 1.020[9] spmv 0.971 tpu 0.943
+new 3: off / stacked             1.011    1.011    1/3    1.015 (2)   0.033  0.949  1.056  reduct 1.003[9] softma 1.030 tpu.ws 1.000
+new 3: on / stacked              0.991    0.991    2/3    0.991 (3)   0.029  0.928  1.022  reduct 0.977 softma 1.019 tpu.ws 0.978
+new 3: on / off                  0.982    0.982    3/3    0.983 (2)   0.034  0.911  1.023  reduct 0.978[9] softma 0.989 tpu.ws 0.978
+all 10: off / stacked            0.982    0.997    6/10    0.980 (9)   0.017  0.956  1.005  attent 0.982 bwave 1.049 conv 0.858 eltwis 1.048 reduct 1.003[9] robot 0.985 softma 1.030 spmv 0.970 tpu 0.912 tpu.ws 1.000
+all 10: on / stacked             0.966    0.982    5/10    0.978 (8)   0.019  0.936  0.997  attent 1.017 bwave 1.015 conv 0.834[9] eltwis 1.029 reduct 0.977 robot 1.010[9] softma 1.019 spmv 0.942 tpu 0.860 tpu.ws 0.978
+all 10: on / off                 0.984    0.985    8/10    0.981 (7)   0.014  0.967  1.010  attent 1.035 bwave 0.968 conv 0.977[9] eltwis 0.982 reduct 0.978[9] robot 1.020[9] softma 0.989 spmv 0.971 tpu 0.943 tpu.ws 0.978
+                              new designs, off runs that failed: reduction_layer s7
+-- k = 2.24
+the 7: off / stacked             0.973    0.986    4/7    0.973 (7)   0.036  0.916  1.027  attent 0.989 bwave 1.026 conv 0.901 eltwis 1.037 robot 1.004 spmv 0.973 tpu 0.892
+the 7: on / stacked              0.949    0.966    6/7    0.949 (7)   0.024  0.912  0.986  attent 0.995 bwave 1.015 conv 0.853 eltwis 0.994 robot 0.996 spmv 0.924 tpu 0.881
+the 7: on / off                  0.976    0.980    6/7    0.976 (7)   0.015  0.957  0.997  attent 1.006 bwave 0.989 conv 0.947 eltwis 0.958 robot 0.992 spmv 0.950 tpu 0.988
+new 3: off / stacked             1.011    1.011    2/3    1.011 (3)   0.041  0.977  1.114  reduct 0.995 softma 1.038 tpu.ws 0.999
+new 3: on / stacked              0.991    0.991    2/3    0.991 (3)   0.028  0.961  1.047  reduct 0.978 softma 1.008 tpu.ws 0.988
+new 3: on / off                  0.981    0.981    3/3    0.981 (3)   0.037  0.887  1.022  reduct 0.983 softma 0.971 tpu.ws 0.988
+all 10: off / stacked            0.984    0.994    6/10    0.984 (10)   0.024  0.946  1.023  attent 0.989 bwave 1.026 conv 0.901 eltwis 1.037 reduct 0.995 robot 1.004 softma 1.038 spmv 0.973 tpu 0.892 tpu.ws 0.999
+all 10: on / stacked             0.962    0.975    8/10    0.962 (10)   0.015  0.939  0.992  attent 0.995 bwave 1.015 conv 0.853 eltwis 0.994 reduct 0.978 robot 0.996 softma 1.008 spmv 0.924 tpu 0.881 tpu.ws 0.988
+all 10: on / off                 0.977    0.981    9/10    0.977 (10)   0.016  0.951  1.004  attent 1.006 bwave 0.989 conv 0.947 eltwis 0.958 reduct 0.983 robot 0.992 softma 0.971 spmv 0.950 tpu 0.988 tpu.ws 0.988
+-- k = 2.72
+the 7: off / stacked             1.008    1.017    3/7    1.008 (7)   0.022  0.978  1.043  attent 1.025 bwave 1.074 conv 0.952 eltwis 1.076 robot 1.002 spmv 0.974 tpu 0.958
+the 7: on / stacked              0.974    0.988    4/7    0.970 (5)   0.024  0.939  1.002  attent 1.046[9] bwave 1.040 conv 0.896 eltwis 1.053 robot 0.965 spmv 0.930[9] tpu 0.905
+the 7: on / off                  0.967    0.971    6/7    0.959 (5)   0.018  0.941  0.994  attent 1.022[9] bwave 0.968 conv 0.941 eltwis 0.978 robot 0.963 spmv 0.951[9] tpu 0.945
+new 3: off / stacked             1.013    1.013    2/3    1.013 (3)   0.034  0.969  1.069  reduct 0.987 softma 1.070 tpu.ws 0.984
+new 3: on / stacked              0.992    0.992    2/3    0.992 (3)   0.018  0.964  1.028  reduct 0.970 softma 1.039 tpu.ws 0.969
+new 3: on / off                  0.979    0.979    3/3    0.979 (3)   0.024  0.936  1.024  reduct 0.983 softma 0.971 tpu.ws 0.984
+all 10: off / stacked            1.009    1.016    5/10    1.009 (10)   0.016  0.989  1.035  attent 1.025 bwave 1.074 conv 0.952 eltwis 1.076 reduct 0.987 robot 1.002 softma 1.070 spmv 0.974 tpu 0.958 tpu.ws 0.984
+all 10: on / stacked             0.980    0.989    6/10    0.978 (8)   0.018  0.951  1.005  attent 1.046[9] bwave 1.040 conv 0.896 eltwis 1.053 reduct 0.970 robot 0.965 softma 1.039 spmv 0.930[9] tpu 0.905 tpu.ws 0.969
+all 10: on / off                 0.970    0.974    9/10    0.967 (8)   0.012  0.951  0.993  attent 1.022[9] bwave 0.968 conv 0.941 eltwis 0.978 reduct 0.983 robot 0.963 softma 0.971 spmv 0.951[9] tpu 0.945 tpu.ws 0.984
+-- k = 3.00
+the 7: off / stacked             1.017    1.026    3/7    1.017 (7)   0.030  0.978  1.076  attent 1.035 bwave 1.063 conv 0.964 eltwis 1.060 robot 1.015 spmv 0.994 tpu 0.990
+the 7: on / stacked              0.979    0.997    4/7    0.979 (7)   0.026  0.940  1.026  attent 1.015 bwave 1.009 conv 0.883 eltwis 1.058 robot 0.985 spmv 0.948 tpu 0.968
+the 7: on / off                  0.963    0.971    7/7    0.963 (7)   0.020  0.918  0.988  attent 0.981 bwave 0.949 conv 0.916 eltwis 0.998 robot 0.971 spmv 0.954 tpu 0.977
+new 3: off / stacked             1.052    1.052    0/3    1.052 (3)   0.030  0.995  1.097  reduct 1.031 softma 1.101 tpu.ws 1.027
+new 3: on / stacked              1.026    1.026    1/3    1.026 (3)   0.030  0.965  1.082  reduct 1.046 softma 1.055 tpu.ws 0.979
+new 3: on / off                  0.975    0.975    2/3    0.975 (3)   0.035  0.914  1.025  reduct 1.015 softma 0.958 tpu.ws 0.953
+all 10: off / stacked            1.027    1.035    3/10    1.027 (10)   0.015  1.001  1.051  attent 1.035 bwave 1.063 conv 0.964 eltwis 1.060 reduct 1.031 robot 1.015 softma 1.101 spmv 0.994 tpu 0.990 tpu.ws 1.027
+all 10: on / stacked             0.993    1.006    5/10    0.993 (10)   0.022  0.947  1.025  attent 1.015 bwave 1.009 conv 0.883 eltwis 1.058 reduct 1.046 robot 0.985 softma 1.055 spmv 0.948 tpu 0.968 tpu.ws 0.979
+all 10: on / off                 0.967    0.973    9/10    0.967 (10)   0.016  0.947  0.993  attent 0.981 bwave 0.949 conv 0.916 eltwis 0.998 reduct 1.015 robot 0.971 softma 0.958 spmv 0.954 tpu 0.977 tpu.ws 0.953
+-- k = 1.00 against the 2D fabric (10-LUT CLBs)
+the 7: off / 2D                  0.921    0.942    6/7    0.921 (7)   0.016  0.891  0.941  attent 0.974 bwave 1.012 conv 0.804 eltwis 0.991 robot 0.925 spmv 0.916 tpu 0.846
+the 7: stacked / 2D              0.976    0.975    5/7    0.976 (7)   0.027  0.925  1.031  attent 1.023 bwave 1.008 conv 0.985 eltwis 0.974 robot 0.973 spmv 0.946 tpu 0.927
+the 7: on / 2D                   0.918    0.939    6/7    0.907 (6)   0.020  0.884  0.949  attent 0.987 bwave 1.009 conv 0.801 eltwis 0.982[9] robot 0.921 spmv 0.891 tpu 0.852
+new 3: off / 2D                  1.000    1.000    2/3    0.993 (2)   0.017  0.979  1.024  reduct 0.992 softma 1.014[9] tpu.ws 0.994
+new 3: stacked / 2D              1.007    1.007    1/3    1.020 (2)   0.035  0.965  1.067  reduct 0.983[9] softma 1.023 tpu.ws 1.016
+new 3: on / 2D                   0.964    0.964    3/3    0.949 (2)   0.033  0.916  1.019  reduct 0.938 softma 0.994[9] tpu.ws 0.960
+all 10: off / 2D                 0.944    0.961    8/10    0.937 (9)   0.013  0.921  0.963  attent 0.974 bwave 1.012 conv 0.804 eltwis 0.991 reduct 0.992 robot 0.925 softma 1.014[9] spmv 0.916 tpu 0.846 tpu.ws 0.994
+all 10: stacked / 2D             0.985    0.985    6/10    0.986 (9)   0.024  0.944  1.041  attent 1.023 bwave 1.008 conv 0.985 eltwis 0.974 reduct 0.983[9] robot 0.973 softma 1.023 spmv 0.946 tpu 0.927 tpu.ws 1.016
+all 10: on / 2D                  0.931    0.947    9/10    0.917 (8)   0.016  0.902  0.955  attent 0.987 bwave 1.009 conv 0.801 eltwis 0.982[9] reduct 0.938 robot 0.921 softma 0.994[9] spmv 0.891 tpu 0.852 tpu.ws 0.960
+                              new designs, off runs that failed: softmax s2
+                              new designs, stack runs that failed: reduction_layer s6
+                              new designs, on runs that failed: softmax s2
+-- k = 1.00 ablation: split CLB on stacked's exact routing (strict)
+the 7: strict / stacked          0.967    0.989    5/7    0.968 (6)   0.031  0.921  1.035  attent 0.978 bwave 1.032 conv 0.844 eltwis 1.039 robot 0.958[9] spmv 0.966 tpu 0.963
+the 7: off / strict              0.976    0.978    6/7    0.974 (6)   0.021  0.930  0.994  attent 0.974 bwave 0.973 conv 0.966 eltwis 0.979 robot 0.991[9] spmv 1.002 tpu 0.948
+the 7: strict / 2D               0.945    0.965    4/7    0.946 (6)   0.017  0.919  0.980  attent 1.001 bwave 1.040 conv 0.832 eltwis 1.012 robot 0.939[9] spmv 0.914 tpu 0.893
+new 3: strict / stacked          0.991    0.991    2/3    0.970 (1)   0.039  0.944  1.069  reduct 0.976[9] softma 1.028[9] tpu.ws 0.970
+new 3: off / strict              1.001    1.001    1/3    1.018 (2)   0.038  0.948  1.058  reduct 1.028 softma 0.967[8] tpu.ws 1.008
+new 3: strict / 2D               0.999    0.999    2/3    0.975 (2)   0.028  0.941  1.034  reduct 0.964 softma 1.049[9] tpu.ws 0.986
+all 10: strict / stacked         0.974    0.989    7/10    0.968 (7)   0.024  0.928  1.008  attent 0.978 bwave 1.032 conv 0.844 eltwis 1.039 reduct 0.976[9] robot 0.958[9] softma 1.028[9] spmv 0.966 tpu 0.963 tpu.ws 0.970
+all 10: off / strict             0.983    0.985    7/10    0.985 (8)   0.017  0.954  1.004  attent 0.974 bwave 0.973 conv 0.966 eltwis 0.979 reduct 1.028 robot 0.991[9] softma 0.967[8] spmv 1.002 tpu 0.948 tpu.ws 1.008
+all 10: strict / 2D              0.961    0.976    6/10    0.953 (8)   0.016  0.930  0.988  attent 1.001 bwave 1.040 conv 0.832 eltwis 1.012 reduct 0.964 robot 0.939[9] softma 1.049[9] spmv 0.914 tpu 0.893 tpu.ws 0.986
+                              new designs, off runs that failed: softmax s2
+                              new designs, stack runs that failed: reduction_layer s6
+                              new designs, abl runs that failed: softmax s10
+-- k = 1.00 equal tracks: stacked at the split's track count (stacked eq)
+the 7: stacked eq / stacked      1.002    1.005    2/7    1.002 (7)   0.025  0.974  1.040  attent 1.007 bwave 0.988 conv 0.985 eltwis 1.002 robot 1.003 spmv 1.014 tpu 1.016
+the 7: off / stacked eq          0.942    0.962    5/7    0.942 (7)   0.015  0.925  0.970  attent 0.946 bwave 1.016 conv 0.828 eltwis 1.015 robot 0.948 spmv 0.955 tpu 0.898
+the 7: on / stacked eq           0.937    0.957    6/7    0.927 (6)   0.024  0.903  0.973  attent 0.958 bwave 1.013 conv 0.826 eltwis 0.998[9] robot 0.944 spmv 0.929 tpu 0.904
+new 3: stacked eq / stacked      0.990    0.990    2/3    0.979 (2)   0.022  0.950  1.023  reduct 1.012[9] softma 0.992 tpu.ws 0.966
+new 3: off / stacked eq          1.004    1.004    1/3    1.004 (2)   0.033  0.958  1.057  reduct 0.997 softma 1.002[9] tpu.ws 1.012
+new 3: on / stacked eq           0.967    0.967    3/3    0.960 (2)   0.033  0.913  1.018  reduct 0.942 softma 0.982[9] tpu.ws 0.978
+all 10: stacked eq / stacked     0.998    1.000    4/10    0.997 (9)   0.017  0.974  1.022  attent 1.007 bwave 0.988 conv 0.985 eltwis 1.002 reduct 1.012[9] robot 1.003 softma 0.992 spmv 1.014 tpu 1.016 tpu.ws 0.966
+all 10: off / stacked eq         0.960    0.976    6/10    0.955 (9)   0.018  0.935  0.985  attent 0.946 bwave 1.016 conv 0.828 eltwis 1.015 reduct 0.997 robot 0.948 softma 1.002[9] spmv 0.955 tpu 0.898 tpu.ws 1.012
+all 10: on / stacked eq          0.946    0.960    9/10    0.935 (8)   0.019  0.914  0.972  attent 0.958 bwave 1.013 conv 0.826 eltwis 0.998[9] reduct 0.942 robot 0.944 softma 0.982[9] spmv 0.929 tpu 0.904 tpu.ws 0.978
+                              new designs, off runs that failed: softmax s2
+                              new designs, stack runs that failed: reduction_layer s6
+                              new designs, on runs that failed: softmax s2
+
+With --fill (the 7's failed runs as in A, and C's stacked reduction_layer s6 at k = 1.0 routed),
+no "all 10" geomean moves by more than 0.002 and no "new 3" one by more than 0.005 (routed k = 1.0
+off / stacked 0.999 -> 0.994); tendesigns_table.py --fill prints that table.
+
+Reading (E)
+- Weak spots first. The new 3 do not share the 7's edge over stacked once crossings slow. Pass off,
+  new 3 over stacked: 0.987 / 0.999 at 1.0x, 0.990 / 0.983 at 1.62x, 1.007 / 1.011 at 2.24x, 1.035 /
+  1.013 at 2.72x, 1.017 / 1.052 at 3.0x (ideal / routed), so their break-even lies between 1.62x and
+  2.24x (the 7: between 2.24x and 2.72x). With the pass they are within 1% of stacked from 1.62x to
+  2.72x with ideal clocks (0.991-1.003, pins included), 0.977-0.992 routed, and slower at 3.0x
+  routed (1.026, 1/3 designs faster). The new-3 rows have a seed sd of 0.017-0.061, so a single
+  new-3 row within about 3% of 1 cannot be told from a tie.
+- The ablation on the new 3: the split CLB alone, on stacked's exact routing, gives them nothing
+  with ideal clocks (strict / stacked 1.004) and 0.991 routed; on the 7 it gave 0.950 / 0.967. All
+  10: 0.966 / 0.974. So the CLB's own gain over stacked, the core claim, shrinks from 5.0% / 3.3%
+  (the 7) to 3.4% / 2.6% with 10 designs, and the 7 carry it (conv_layer 0.839 most of all).
+- Against 2D, the new 3 show little or no gain without the pass: split 0.989 / 1.000 of 2D, stacked
+  1.002 / 1.007. All 10: split 0.947 / 0.944 of 2D (the 7: 0.929 / 0.921), stacked 0.996 / 0.985,
+  split with the pass 0.932 / 0.931.
+- Headline with all 10 (k = 1.0, pass off): split 0.951 / 0.960 of stacked (the 7: 0.936 / 0.944),
+  9/10 and 7/10 designs faster, 0.964 / 0.977 without conv_layer.
+- Break-even with all 10, pass off: 0.991 / 0.984 at 2.24x, 1.016 / 1.009 at 2.72x, so between 2.24x
+  and 2.72x as with the 7; without conv_layer a tie from 2.24x (1.001 / 0.994).
+- With the pass, all 10, split over stacked: 0.936 / 0.944 (1.0x), 0.954 / 0.946 (1.62x), 0.967 /
+  0.966 (1.62x + pins), 0.963 / 0.962 (2.24x), 0.966 / 0.980 (2.72x), 0.986 / 0.993 (3.0x): faster
+  at every crossing delay run, but at 3.0x only 6/10 and 5/10 designs are faster and without
+  conv_layer it is a tie (1.000 / 1.006).
+- The pass itself, on / off, all 10: 0.984, 0.982, 0.980, 0.972, 0.950, 0.969 ideal and 0.985,
+  0.980, 0.984, 0.977, 0.970, 0.967 routed (1.0x, 1.62x, 1.62x + pins, 2.24x, 2.72x, 3.0x). On the
+  new 3 alone: 0.976, 1.001, 1.003, 0.990, 0.963, 0.983 ideal and 0.964, 0.994, 0.982, 0.981, 0.979,
+  0.975 routed: it helps them at 1.0x and from 2.24x up; at 1.62x it does nothing with ideal clocks
+  (1.001, 1.003 with pins). Not monotonic in k, so read about 1-2% as noise.
+- Equal tracks, all 10: stacked at the split's track count is 0.996 / 0.998 of stacked at its own
+  (new 3: 0.999 / 0.990), so more tracks do not help stacked; split is 0.955 / 0.960 of it, 0.940 /
+  0.946 with the pass. The extra tracks do not explain the split's edge.
+- Defended crossing range (339-549 ps, 1.0x-1.62x + pins), all 10, split over stacked: pass off
+  0.951-0.987 ideal, 0.960-0.982 routed (the 7: 0.936-0.982, 0.944-0.970); with the pass
+  0.936-0.967, 0.944-0.966.
+- The bigger Koios designs (newdesigns/bigtrial.txt): lstm and dla_like.small both route in the
+  trial, in 34.5 and 26.0 minutes, peaking at 7.23 and 7.34 GiB in the width search, so both still
+  fail C's rule (4 GB). Their full set as the 10 would take about 160 VPR-hours (lstm 89.6,
+  dla_like.small 68.8, if every setting costs what k = 1.0 split does), and memory limits the Mac to
+  5-6 runs at once: about 1.5 days. C's set alone (k = 1.0 and 1.62x + pins): about 48 VPR-hours,
+  8-10 hours.

@@ -15,6 +15,7 @@
 #include "tatum/echo_writer.hpp"
 #include "vpr_context.h"
 #include "vtr_math.h"
+#include "vtr_util.h"
 #include "SetupGrid.h"
 
 /**********************************/
@@ -122,6 +123,25 @@ void calc_init_packing_timing(const t_packer_opts& packer_opts,
             float crit = timing_info->setup_pin_criticality(in_pin);
             atom_criticality[blk] = std::max(atom_criticality[blk], crit);
         }
+    }
+
+    if (!packer_opts.pack_criticality_file.empty()) {
+        // One line per atom connection: driver block, sink block, setup criticality of the sink pin.
+        // Read only by a post-pack pass outside VPR; nothing here changes packing.
+        FILE* fp = vtr::fopen(packer_opts.pack_criticality_file.c_str(), "w");
+        fprintf(fp, "#driver_block\tsink_block\tcriticality\n");
+        for (AtomNetId net : atom_ctx.nlist.nets()) {
+            AtomPinId driver = atom_ctx.nlist.net_driver(net);
+            if (!driver) continue;
+            AtomBlockId src = atom_ctx.nlist.pin_block(driver);
+            for (AtomPinId sink : atom_ctx.nlist.net_sinks(net)) {
+                fprintf(fp, "%s\t%s\t%.6g\n", atom_ctx.nlist.block_name(src).c_str(),
+                        atom_ctx.nlist.block_name(atom_ctx.nlist.pin_block(sink)).c_str(),
+                        timing_info->setup_pin_criticality(sink));
+            }
+        }
+        vtr::fclose(fp);
+        VTR_LOG("Wrote packer connection criticalities to %s\n", packer_opts.pack_criticality_file.c_str());
     }
 }
 

@@ -1,0 +1,25 @@
+   planted fault: LUT d0: row 000000 (output 1) dropped from the BLIF, not from the reference
+1. Building the routing graph with routed clocks, as LaZagna does
+2. Running VPR and OpenFPGA without them
+   layer_pass: in-CLB crossing 138.50 ps, routing crossing 137.34 ps, exponent 8
+   layer_pass: weighted crossing cost 10.0 -> 7.5; 2 FLE moves, 1 of 1 CLBs rewritten (0 left as packed: an empty FLE carries a signal)
+   layer_pass: connections with criticality >= 0.9 crossing layers: in-CLB 0 -> 0, between CLBs 0 -> 0
+   layer_pass: connections with criticality >= 0.99 crossing layers: in-CLB 0 -> 0, between CLBs 0 -> 0
+   atoms in another FLE slot after the pass: 4, on the other layer: 4 (of 38)
+     d0: fle[19] (layer 1) -> fle[9] (layer 0)
+     q0: fle[19] (layer 1) -> fle[9] (layer 0)
+     d14: fle[9] (layer 0) -> fle[19] (layer 1)
+     q14: fle[9] (layer 0) -> fle[19] (layer 1)
+   the faulty LUT d0 is on the other layer after the pass
+   the packing OpenFPGA placed, routed and built the bitstream from (passed.net.post_routing) is the rewritten one
+3. Splitting the CLB by layer
+4. Compiling the simulation, about 2 minutes
+5. Simulating 1,000 cycles per case
+
+cut         mismatches  expected
+none                26  must fail
+
+6. Long run, 5,000 cycles
+mismatches: 167
+
+PASS: the planted fault was caught

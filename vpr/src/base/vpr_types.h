@@ -876,6 +876,7 @@ struct t_packer_opts {
     int pack_num_moves;
     std::string pack_move_type;
     bool load_flat_placement;
+    std::string pack_criticality_file; ///<If not empty, write each connection's setup criticality from the packer's timing analysis here
 };
 
 /**

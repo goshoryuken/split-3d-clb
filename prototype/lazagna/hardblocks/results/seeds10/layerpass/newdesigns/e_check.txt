@@ -1,0 +1,32 @@
+Experiment E check (2026-11-17 11:35-11:48, before the sweep): run_newdesigns_e.sh on one design and
+seed of the 7 per kind of run (JOBS=1, at most 2 VPR at once), each row against its committed row,
+every CSV column compared (scratch: echeck/compare.py).
+
+MATCH a/k224_route/split     vs crossings/k224_route/split   3d eltwise_layer s1 w188 cpd 14.8477 wl 146387 routed True
+MATCH a/k224_route/stack     vs crossings/k224_route/stack   3d eltwise_layer s1 w126 cpd 14.4611 wl 144291 routed True
+MATCH a/k224_ideal/split     vs crossings/k224_ideal/split   3d eltwise_layer s1 w188 cpd 14.9209 wl 145013 routed True
+MATCH a/k224_ideal/stack     vs crossings/k224_ideal/stack   3d eltwise_layer s1 w126 cpd 14.8757 wl 137158 routed True
+MATCH a/k162_route/split     vs crossings/k162_route/split   3d eltwise_layer s1 w168 cpd 14.2918 wl 147924 routed True
+MATCH a/k162_ideal/split     vs crossings/k162_ideal/split   3d eltwise_layer s1 w168 cpd 14.5223 wl 146043 routed True
+MATCH a/on/k224_route/split  vs layerpass/k224_route/split   3d eltwise_layer s1 w188 cpd 14.2924 wl 145676 routed True
+MATCH a/on/k224_ideal/split  vs layerpass/k224_ideal/split   3d eltwise_layer s1 w188 cpd 14.5551 wl 142424 routed True
+MATCH a/on/k162_route/split  vs layerpass/k162_route/split   3d eltwise_layer s1 w168 cpd 14.3398 wl 145788 routed True
+MATCH a/on/k162_ideal/split  vs layerpass/k162_ideal/split   3d eltwise_layer s1 w168 cpd 13.9194 wl 142013 routed True
+MATCH a/abl_route/split      vs ablation/strict_route        3d eltwise_layer s1 w144 cpd 14.0025 wl 138564 routed True
+MATCH a/abl_ideal/split      vs ablation/strict_ideal        3d eltwise_layer s1 w144 cpd 14.3909 wl 128496 routed True
+MATCH a/eq_route/stack       vs equal_tracks/eq_route        3d eltwise_layer s1 w178 cpd 13.9837 wl 129425 routed True
+MATCH a/eq_ideal/stack       vs equal_tracks/eq_ideal        3d eltwise_layer s1 w178 cpd 13.5869 wl 127437 routed True
+MATCH b/2d_route/split       vs route/split                  2d spmv s1 w112 cpd 18.0926 wl 142295 routed True
+MATCH b/2d_route/split       vs route/split                  3d spmv s1 w124 cpd 15.7643 wl 122137 routed True
+MATCH b/2d_ideal/split       vs ideal/split                  2d spmv s1 w112 cpd 16.4918 wl 135684 routed True
+MATCH b/2d_ideal/split       vs ideal/split                  3d spmv s1 w124 cpd 16.7123 wl 117972 routed True
+
+Reuse of experiment C's k = 1 split runs by the 2d step, and the eq step's widths from C's runs
+(C=newdesigns run, reduction_layer s1): the split rows of the new 2D CSVs equal C's committed rows,
+and eq takes C's minimum width 94 -> 124 tracks, C's own width (echeck = the check's scratch output):
+echeck/c/2d_route/split        3d,20,124,1.0,130.77,reduction_layer,10300,34,1,True,17.9384,143804
+newdesigns/k100_route/split    3d,20,124,1.0,130.77,reduction_layer,10300,34,1,True,17.9384,143804
+echeck/c/2d_ideal/split        3d,20,124,1.0,130.77,reduction_layer,10300,34,1,True,18.0954,138688
+newdesigns/k100_ideal/split    3d,20,124,1.0,130.77,reduction_layer,10300,34,1,True,18.0954,138688
+echeck/c/eq_route/stack        3d,10,124,1.0,131.9,reduction_layer,10300,34,1,True,19.9492,106899
+echeck/c/eq_ideal/stack        3d,10,124,1.0,131.9,reduction_layer,10300,34,1,True,17.7956,100311

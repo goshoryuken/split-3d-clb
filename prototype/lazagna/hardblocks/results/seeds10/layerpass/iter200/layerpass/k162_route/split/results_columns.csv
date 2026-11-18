@@ -1,0 +1,2 @@
+fabric,fles,chan_width,wire_scale,crossing_ps,bench,luts,grid,seed,routed,cpd_ns,wirelength,hard,layers,rams,dsps,lut_cap,ram_cap,dsp_cap,die_cells
+3d,20,94,1.0,211.62,robot_rl,15356,41,2,True,20.6967,164461,columns,2,96,6,22620,390,390,3042

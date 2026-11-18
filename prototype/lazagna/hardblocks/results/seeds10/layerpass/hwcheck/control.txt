@@ -1,0 +1,46 @@
+1. Building the routing graph with routed clocks, as LaZagna does
+2. Running VPR and OpenFPGA without them
+   layer_pass: CONTROL: every FLE kept on its layer, random slot within it
+   layer_pass: in-CLB crossing 138.50 ps, routing crossing 137.34 ps, exponent 8
+   layer_pass: weighted crossing cost 10.0 -> 10.0; 0 FLE moves, 1 of 1 CLBs rewritten (0 left as packed: an empty FLE carries a signal)
+   layer_pass: connections with criticality >= 0.9 crossing layers: in-CLB 0 -> 0, between CLBs 0 -> 0
+   layer_pass: connections with criticality >= 0.99 crossing layers: in-CLB 0 -> 0, between CLBs 0 -> 0
+   atoms in another FLE slot after the pass: 31, on the other layer: 0 (of 38)
+   the packing OpenFPGA placed, routed and built the bitstream from (passed.net.post_routing) is the rewritten one
+3. Splitting the CLB by layer
+4. Compiling the simulation, about 2 minutes
+5. Simulating 1,000 cycles per case
+
+cut         mismatches  expected
+none                 0  must pass
+set                  0  must pass
+clk               4853  must fail
+reset               19  must fail
+clb_clk              0  either
+F0                 908  either
+F10               1005  either
+F11                773  either
+F12                977  either
+F13                394  either
+F14                743  either
+F15                231  either
+F16                596  either
+F17                579  either
+F18               1402  either
+F19                940  either
+F1                1074  either
+F2                1007  either
+F3                 883  either
+F4                1072  either
+F5                 984  either
+F6                 760  either
+F7                 931  either
+F8                1009  either
+F9                 954  either
+
+FLE output crossings the design uses, caught when cut: 20 of 20
+
+6. Long run, 5,000 cycles
+mismatches: 0
+
+PASS: flip-flops work in the split two-layer CLB
