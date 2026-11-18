@@ -1,0 +1,26 @@
+Experiment F: the two smallest Koios designs over newdesigns_rule.txt's limit (written 2026-11-18
+01:09 EST, before any run of this experiment)
+
+Designs: lstm (95,679 LUTs) and dla_like.small (93,939 LUTs). Both failed newdesigns_rule.txt on
+memory (7.23 and 7.34 GiB peak in the width search) but route (newdesigns/bigtrial.txt), and they are
+the two smallest Koios designs left: the 10 have 7-30k LUTs each (koios_sizes.txt). They are a separate test of
+whether the split and the layer pass hold on much bigger designs, not designs 11 and 12: they do not
+join the 10, and the 10-design tables do not change.
+
+Runs: experiment C's set, exactly as the 3 added designs ran it (run_newdesigns.sh, POINTS
+"k100 k162pin"): 10 seeds; stacked, split pass-off and split pass-on; routed and ideal clocks;
+k = 1.0 (SPICE delays) and k = 1.62 + pins (the harshest reading of the layout). Same VPR, same
+delay sets, same 1.3x track relaxation, pass-on at its pass-off twin's track count.
+Not run (about 1.5 days more, newdesigns/bigtrial.txt): k = 1.62, 2.24, 2.72 and 3.0, the 2D fabric,
+the ablation and equal tracks.
+
+Reporting: both designs, both points, every seed, in their own table ("2 bigger designs") next to
+the 10-design tables, whatever they show. A run that does not route within 50 router iterations is
+rerun at 200 (run_failed.sh), as for the 10; a run that still fails drops only that seed. If the
+sweep is stopped before it ends, what finished is reported and what is missing is named; no seed or
+design is chosen afterwards.
+
+Not run: dnnweaver (114k LUTs, 1221 RAMs), clstm_like.small (175k) and gemm_layer (396k), which are
+bigger still.
+
+Machine: the Mac (48 GiB). A width search peaks at about 7.3 GiB, so at most 5-6 VPR runs at once.
